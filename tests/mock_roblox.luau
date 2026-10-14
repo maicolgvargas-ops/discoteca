@@ -191,9 +191,11 @@ local CLASSES = {
 	Fire = { props = { "Name", "Parent", "Size", "Heat", "Color", "SecondaryColor", "Enabled" } },
 	BloomEffect = { props = { "Name", "Parent", "Intensity", "Size", "Threshold" } },
 	ColorCorrectionEffect = { props = { "Name", "Parent", "Contrast", "Saturation", "TintColor", "Brightness" } },
+	Smoke = { props = { "Name", "Parent", "Size", "Opacity", "RiseVelocity", "Color", "Enabled" } },
+	DepthOfFieldEffect = { props = { "Name", "Parent", "FarIntensity", "NearIntensity", "FocusDistance", "InFocusRadius" } },
 	Atmosphere = { props = { "Name", "Parent", "Density", "Offset", "Color", "Decay", "Glare", "Haze" } },
 	Workspace = { props = { "Name", "Parent" } },
-	Lighting = { props = { "Name", "Parent", "ClockTime", "Brightness", "Ambient", "OutdoorAmbient", "GlobalShadows" } },
+	Lighting = { props = { "Name", "Parent", "ClockTime", "Brightness", "Ambient", "OutdoorAmbient", "GlobalShadows", "ExposureCompensation", "EnvironmentDiffuseScale", "EnvironmentSpecularScale", "ShadowSoftness" } },
 	RunService = { props = { "Name", "Parent" } },
 }
 

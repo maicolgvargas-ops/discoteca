@@ -19,6 +19,11 @@ Escaleras: P1→P2 al este, P2→P3 al oeste (24 peldaños de 1 stud). Spawn en 
 
 **Opción C – Rojo:** `rojo serve` con `default.project.json`.
 
+### Para que se vea como una sala real
+- En Studio: **Lighting → Technology = Future** (no se puede cambiar desde script). Da sombras y reflejos reales en suelo y cristal. Sube también la calidad gráfica (Studio Settings → Rendering → Quality Level 10).
+- El script ya pone ambiente oscuro, bloom fuerte, profundidad de campo y atmósfera. La luz viene de focos, neón y luces cálidas, no de un ambiente general.
+- Detalles: trusses reticulados con focos, altavoces colgados en columna (line array), neón rosa dibujado en el techo, focos empotrados cálidos, listones acústicos de madera, humo en los escenarios, sofás de terciopelo cálido con almohadones y cuerdas doradas en el VIP, cristal pulido sobre la pista LED.
+
 ### Música
 `CONFIG.MusicId` está vacío a propósito (no puedo verificar IDs de audio desde aquí). Pon un `rbxassetid://…` de un audio que puedas usar y sonará en los altavoces de la pista y del rooftop.
 
