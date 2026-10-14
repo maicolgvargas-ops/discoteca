@@ -61,6 +61,27 @@ function UDim2.fromScale(x, y)
 	return { X = x, Y = y, __type = "UDim2" }
 end
 
+local ColorSequence = {}
+function ColorSequence.new(a, b)
+	assert(a ~= nil and a.__type == "Color3", "ColorSequence.new necesita un Color3")
+	return { __type = "ColorSequence", first = a, last = b or a }
+end
+local NumberSequenceKeypoint = {}
+function NumberSequenceKeypoint.new(t, v)
+	assert(type(t) == "number" and t >= 0 and t <= 1, "NumberSequenceKeypoint: tiempo fuera de [0,1]")
+	assert(type(v) == "number" and v >= 0 and v <= 1, "NumberSequenceKeypoint: valor fuera de [0,1]: " .. tostring(v))
+	return { Time = t, Value = v, __type = "NumberSequenceKeypoint" }
+end
+local NumberSequence = {}
+function NumberSequence.new(keys)
+	assert(type(keys) == "table" and #keys >= 2, "NumberSequence necesita >= 2 keypoints")
+	assert(keys[1].Time == 0 and keys[#keys].Time == 1, "NumberSequence debe empezar en 0 y acabar en 1")
+	for i = 2, #keys do
+		assert(keys[i].Time > keys[i - 1].Time, "NumberSequence: tiempos no crecientes")
+	end
+	return { __type = "NumberSequence", Keypoints = keys }
+end
+
 local Vector2 = {}
 function Vector2.new(x, y)
 	return { X = x, Y = y, __type = "Vector2" }
@@ -194,6 +215,8 @@ local CLASSES = {
 	Fire = { props = { "Name", "Parent", "Size", "Heat", "Color", "SecondaryColor", "Enabled" } },
 	BloomEffect = { props = { "Name", "Parent", "Intensity", "Size", "Threshold" } },
 	ColorCorrectionEffect = { props = { "Name", "Parent", "Contrast", "Saturation", "TintColor", "Brightness" } },
+	Attachment = { props = { "Name", "Parent", "Position", "CFrame" } },
+	Beam = { props = { "Name", "Parent", "Attachment0", "Attachment1", "Color", "Transparency", "Width0", "Width1", "LightEmission", "LightInfluence", "FaceCamera", "Segments", "Enabled", "CurveSize0", "CurveSize1", "ZOffset" } },
 	Smoke = { props = { "Name", "Parent", "Size", "Opacity", "RiseVelocity", "Color", "Enabled" } },
 	DepthOfFieldEffect = { props = { "Name", "Parent", "FarIntensity", "NearIntensity", "FocusDistance", "InFocusRadius" } },
 	Atmosphere = { props = { "Name", "Parent", "Density", "Offset", "Color", "Decay", "Glare", "Haze" } },
@@ -239,6 +262,7 @@ local RANGES = {
 	PointLight = { Range = { 0, 60 }, Brightness = { 0, 1e4 } },
 	SpotLight = { Range = { 0, 60 }, Brightness = { 0, 1e4 }, Angle = { 0, 180 } },
 	Fire = { Size = { 2, 30 }, Heat = { -25, 25 } },
+	Beam = { LightEmission = { 0, 1 }, LightInfluence = { 0, 1 }, Width0 = { 0, 100 }, Width1 = { 0, 100 }, Segments = { 1, 300 } },
 	Smoke = { Size = { 0.1, 100 }, Opacity = { 0, 1 }, RiseVelocity = { -25, 25 } },
 	Sound = { Volume = { 0, 10 }, RollOffMinDistance = { 0, 1e5 }, RollOffMaxDistance = { 0, 1e5 } },
 	BloomEffect = { Intensity = { 0, 100 }, Size = { 0, 56 }, Threshold = { 0, 100 } },

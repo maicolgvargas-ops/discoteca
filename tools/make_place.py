@@ -41,7 +41,7 @@ LIGHTING = (
     '\t\t\t<float name="ExposureCompensation">0.5</float>\n'
     '\t\t\t<float name="EnvironmentDiffuseScale">0.4</float>\n'
     '\t\t\t<float name="EnvironmentSpecularScale">1</float>\n'
-    '\t\t\t<float name="ShadowSoftness">0.25</float>\n'
+    '\t\t\t<float name="ShadowSoftness">0.35</float>\n'
     '\t\t\t<bool name="GlobalShadows">true</bool>\n'
     '\t\t</Properties>\n\t</Item>\n'
 )

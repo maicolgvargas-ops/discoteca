@@ -15,7 +15,7 @@
 			<float name="ExposureCompensation">0.5</float>
 			<float name="EnvironmentDiffuseScale">0.4</float>
 			<float name="EnvironmentSpecularScale">1</float>
-			<float name="ShadowSoftness">0.25</float>
+			<float name="ShadowSoftness">0.35</float>
 			<bool name="GlobalShadows">true</bool>
 		</Properties>
 	</Item>
@@ -55,8 +55,25 @@ local CONFIG = {
 	RemoveTemplateObjects = true,
 	TileCount = 12, -- pista LED de TileCount x TileCount baldosas
 	LowPerformance = false, -- true: animaciones menos frecuentes (equipos o servidores justos)
-	Boundary = true, -- muros invisibles alrededor de la calle (evita caer al vacio)
+	Boundary = true, -- barrera invisible sobre el muro perimetral (no se puede saltar ni escalar)
+
+	-- AJUSTES DE LUCES Y RENDER (toca solo estos valores para afinar el aspecto)
+	Look = {
+		LightIntensity = 1.0, -- multiplica el brillo de TODAS las luces (0.5 = mitad, 1.5 = +50 %)
+		AmbientBoost = 1.0, -- multiplica el ambiente base: sube si el interior se ve oscuro, baja para mas contraste
+		Exposure = 0.5, -- Lighting.ExposureCompensation (-5..5)
+		Bloom = { Intensity = 0.45, Size = 20, Threshold = 1.0 }, -- brillo difuso del neon (antes 1.3 / 42 / 0.85)
+		BeamTransparency = 0.0, -- se SUMA a la transparencia de los laseres (+0.05 = mas transparentes, -0.1 = mas solidos)
+		BeamBrightness = 1.0, -- multiplica la emision de luz de laseres y conos (0..2)
+		BeamWidth = 1.0, -- multiplica el grosor de laseres y conos
+		ShaftTransparency = 0.0, -- se SUMA a la transparencia de los conos de luz de los focos
+		TileBrightness = 0.85, -- brillo maximo de las baldosas LED (1 = como antes)
+		KeyShadows = true, -- sombras en las luces clave (solo se ven con Lighting.Technology = Future o ShadowMap)
+		Reflections = 1.0, -- Lighting.EnvironmentSpecularScale (0..1): reflejos en suelos y cristal
+		ShadowSoftness = 0.35, -- Lighting.ShadowSoftness (0..1)
+	},
 }
+local LOOK = CONFIG.Look
 
 local function normalizeAudioId(id)
 	if type(id) == "number" then
@@ -132,7 +149,7 @@ local club = Instance.new("Model")
 club.Name = CONFIG.Name
 
 local folders = {}
-for _, n in { "Exterior", "Floor1", "Floor2", "Floor3", "Stairs", "Effects" } do
+for _, n in { "Exterior", "Streets", "Parking", "Perimeter", "Floor1", "Floor2", "Floor3", "Stairs", "Effects" } do
 	local f = Instance.new("Folder")
 	f.Name = n
 	f.Parent = club
@@ -238,7 +255,9 @@ local function ball(parent, name, x, y, z, diameter, color, material, extra)
 	)
 end
 
-local function addLight(part, color, range, spot, brightness)
+local lightShaft -- se define mas abajo (necesita lighten)
+
+local function addLight(part, color, range, spot, brightness, shadows)
 	local l
 	if spot then
 		l = Instance.new("SpotLight")
@@ -249,8 +268,8 @@ local function addLight(part, color, range, spot, brightness)
 	end
 	l.Color = color
 	l.Range = range
-	l.Brightness = brightness or 1.2
-	l.Shadows = false
+	l.Brightness = (brightness or 1.2) * LOOK.LightIntensity
+	l.Shadows = (shadows and LOOK.KeyShadows) and true or false
 	l.Parent = part
 	lightCount += 1
 	return l
@@ -262,10 +281,19 @@ local function glow(parent, name, x1, y1, z1, x2, y2, z2, color, opts)
 	if opts then
 		local light
 		if opts.light then
-			light = addLight(p, color, opts.light, opts.spot, opts.brightness)
+			light = addLight(p, color, opts.light, opts.spot, opts.brightness, opts.shadows)
 		end
+		local entry
 		if opts.cycle then
-			table.insert(fx.glows, { part = p, light = light, phase = opts.phase or 0 })
+			entry = { part = p, light = light, phase = opts.phase or 0 }
+			table.insert(fx.glows, entry)
+		end
+		-- cono de luz translucido bajo el foco: opts.shaft = { largo, ancho arriba, ancho abajo }
+		if opts.shaft and lightShaft then
+			local b = lightShaft(p, color, opts.shaft[1], opts.shaft[2], opts.shaft[3])
+			if entry then
+				entry.beam = b
+			end
 		end
 	end
 	return p
@@ -292,7 +320,7 @@ end
 -- estrobo: empieza APAGADO (la luz se enciende solo durante las rafagas)
 local function addStrobe(parent, name, x1, y1, z1, x2, y2, z2)
 	local s = B(parent, name, x1, y1, z1, x2, y2, z2, C.dark, M.Neon, DECOR)
-	local l = addLight(s, C.white, 40, true, 6)
+	local l = addLight(s, C.white, 40, true, 4)
 	l.Enabled = false
 	table.insert(fx.strobes, { part = s, light = l, on = false })
 end
@@ -793,7 +821,7 @@ local FLICKER = { 0.8, 1.0, 1.25 }
 
 local function flameLight(part, color, range, brightness)
 	local l = addLight(part, color, range, false, brightness)
-	table.insert(fx.flames, { light = l, base = brightness, phase = #fx.flames * 1.3 })
+	table.insert(fx.flames, { light = l, base = l.Brightness, phase = #fx.flames * 1.3 })
 	return l
 end
 
@@ -916,25 +944,393 @@ local function cauldron(parent, name, x, y, z)
 end
 
 ------------------------------------------------------------------------
+-- Haces de luz translucidos (laseres y conos de focos)
+------------------------------------------------------------------------
+local function clamp01(v)
+	return math.clamp(v, 0, 1)
+end
+
+-- capas del laser: nucleo fino, capa media y halo ancho. Cada una con su transparencia y
+-- su brillo; juntas dan un borde suave y se puede ver a traves del haz.
+local LASER_LAYERS = {
+	{ width = 0.12, trans = 0.62, emission = 0.9, mix = 0.55 },
+	{ width = 0.45, trans = 0.86, emission = 0.6, mix = 0.15 },
+	{ width = 1.1, trans = 0.95, emission = 0.35, mix = 0 },
+}
+
+-- crea las 3 capas entre el centro de `head` y un Attachment "punta" que se mueve cada tick
+local function laserBeam(head, color)
+	local a0 = Instance.new("Attachment")
+	a0.Name = "LaserOrigin"
+	a0.Parent = head
+	local tip = Instance.new("Attachment")
+	tip.Name = "LaserTip"
+	tip.Parent = head
+	for i, L in LASER_LAYERS do
+		local b = Instance.new("Beam")
+		b.Name = "LaserBeam" .. i
+		b.Attachment0 = a0
+		b.Attachment1 = tip
+		b.Color = ColorSequence.new(lighten(color, L.mix))
+		local t = clamp01(L.trans + LOOK.BeamTransparency)
+		-- se desvanece en el origen y en la punta; el centro es el mas visible
+		b.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.08, t),
+			NumberSequenceKeypoint.new(0.7, math.min(1, t + 0.04)),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		b.Width0 = L.width * LOOK.BeamWidth
+		b.Width1 = L.width * LOOK.BeamWidth * 0.6
+		b.LightEmission = clamp01(L.emission * LOOK.BeamBrightness)
+		b.LightInfluence = 0
+		b.FaceCamera = true
+		b.Segments = 1
+		b.Parent = head
+	end
+	return tip
+end
+
+-- cono de luz suave bajo un foco: un unico Beam muy transparente que se ensancha hacia el suelo
+lightShaft = function(part, color, length, w0, w1)
+	local a0 = Instance.new("Attachment")
+	a0.Name = "ShaftTop"
+	a0.Position = Vector3.new(0, -0.5, 0)
+	a0.Parent = part
+	local a1 = Instance.new("Attachment")
+	a1.Name = "ShaftBottom"
+	a1.Position = Vector3.new(0, -length, 0)
+	a1.Parent = part
+	local b = Instance.new("Beam")
+	b.Name = "LightShaft"
+	b.Attachment0 = a0
+	b.Attachment1 = a1
+	b.Color = ColorSequence.new(color)
+	b.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, clamp01(0.9 + LOOK.ShaftTransparency)),
+		NumberSequenceKeypoint.new(0.55, clamp01(0.95 + LOOK.ShaftTransparency)),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	b.Width0 = w0 * LOOK.BeamWidth
+	b.Width1 = w1 * LOOK.BeamWidth
+	b.LightEmission = clamp01(0.5 * LOOK.BeamBrightness)
+	b.LightInfluence = 0
+	b.FaceCamera = true
+	b.Segments = 1
+	b.Parent = part
+	return b
+end
+
+------------------------------------------------------------------------
+-- Mundo exterior: calles, aceras, parqueadero y perimetro
+------------------------------------------------------------------------
+-- Limites jugables (cara interior del muro): X -98..98, Z -98..156. El club (+-50) queda
+-- rodeado por: acera interior (hasta +-66), calle de 20 (hasta +-86), acera exterior (hasta
+-- +-98). Al sur de la calle frontal esta el parqueadero (Z 98..156), unido a la puerta del
+-- club por un paso de peatones elevado a ras de las aceras (sin escalones).
+local WORLD = { x1 = -98, x2 = 98, z1 = -98, z2 = 156 }
+local ROAD_Y = -0.3 -- superficie del asfalto (las aceras estan en y = 0)
+local LOT_Y = -0.24 -- superficie del parqueadero (una losa fina sobre el asfalto)
+local ASPHALT = Color3.fromRGB(34, 34, 42)
+local WALK = Color3.fromRGB(78, 72, 90)
+local WALK2 = Color3.fromRGB(88, 84, 100)
+local CURB = Color3.fromRGB(170, 166, 178)
+local PAINT_W = Color3.fromRGB(235, 235, 240)
+local PAINT_Y = Color3.fromRGB(255, 200, 40)
+local PAINT_B = Color3.fromRGB(40, 110, 230)
+local PAINT = { CanCollide = false, CastShadow = false }
+local CAR_COLORS = {
+	Color3.fromRGB(190, 30, 50), Color3.fromRGB(30, 80, 190), Color3.fromRGB(235, 235, 240),
+	Color3.fromRGB(40, 40, 48), Color3.fromRGB(240, 150, 30), Color3.fromRGB(110, 60, 190),
+	Color3.fromRGB(40, 150, 90), Color3.fromRGB(150, 150, 160),
+}
+
+-- pintura plana (0.06 de alto) sobre el asfalto, sin colision
+local function paint(parent, name, x1, z1, x2, z2, color, y)
+	local y0 = y or ROAD_Y
+	return B(parent, name, x1, y0, z1, x2, y0 + 0.06, z2, color, M.SmoothPlastic, PAINT)
+end
+
+-- paso de peatones ELEVADO: plataforma a ras de las aceras (y = 0) con franjas.
+-- along = "z": los peatones caminan en Z (calzada E-W); "x": caminan en X. len = largo del cruce.
+local function crosswalk(parent, name, cx, cz, along, len)
+	local n = math.floor(len / 2)
+	if along == "z" then
+		B(parent, name .. "_Slab", cx - 6, -3, cz - len / 2, cx + 6, 0, cz + len / 2, Color3.fromRGB(46, 46, 56), M.Asphalt)
+		for k = 0, n - 1 do
+			local z = cz - len / 2 + 0.55 + k * 2
+			B(parent, name .. "_Stripe" .. k, cx - 5, 0, z, cx + 5, 0.06, z + 0.9, PAINT_W, M.SmoothPlastic, PAINT)
+		end
+	else
+		B(parent, name .. "_Slab", cx - len / 2, -3, cz - 6, cx + len / 2, 0, cz + 6, Color3.fromRGB(46, 46, 56), M.Asphalt)
+		for k = 0, n - 1 do
+			local x = cx - len / 2 + 0.55 + k * 2
+			B(parent, name .. "_Stripe" .. k, x, 0, cz - 5, x + 0.9, 0.06, cz + 5, PAINT_W, M.SmoothPlastic, PAINT)
+		end
+	end
+end
+
+-- farola: poste, cabeza de neon calido y, opcionalmente, una luz real (range)
+local function streetLamp(parent, name, x, y, z, range)
+	cyl(parent, name .. "_Base", x, y + 0.4, z, 0.8, 1.6, C.dark, M.Metal)
+	cyl(parent, name .. "_Pole", x, y + 7.4, z, 13.2, 0.5, C.dark, M.Metal)
+	local head = B(parent, name .. "_Head", x - 1, y + 14, z - 1, x + 1, y + 14.5, z + 1, C.warmWhite, M.Neon, DECOR)
+	B(parent, name .. "_Cap", x - 1.2, y + 14.5, z - 1.2, x + 1.2, y + 14.8, z + 1.2, C.dark, M.Metal, DECOR)
+	if range then
+		addLight(head, C.warmWhite, range, false, 0.9)
+	end
+end
+
+-- senal: poste detras de la placa. (dx,dz) = hacia donde mira. height = altura del centro de la placa
+local function signPost(parent, name, x, y, z, height, w, h, dx, dz, text, color)
+	cyl(parent, name .. "_Post", x - dx * 0.45, y + height / 2, z - dz * 0.45, height, 0.4, C.dark, M.Metal)
+	sign(parent, name .. "_Plate", x, y + height, z, w, h, dx, dz, text, color, false)
+end
+
+-- coche decorativo (frente = -Z local). La carroceria y la cabina colisionan; ruedas y luces no.
+local function car(parent, name, x, z, ry, color)
+	local cf = CFrame.new(x, ROAD_Y, z) * CFrame.Angles(0, ry, 0)
+	P(parent, name .. "_Body", cf * CFrame.new(0, 1.1, 0), Vector3.new(6, 1.4, 12), color, M.SmoothPlastic, { Reflectance = 0.15 })
+	P(parent, name .. "_Cabin", cf * CFrame.new(0, 2.5, 0.8), Vector3.new(5.2, 1.4, 6.2), Color3.fromRGB(40, 60, 90), M.Glass, { Transparency = 0.35, Reflectance = 0.2 })
+	P(parent, name .. "_Roof", cf * CFrame.new(0, 3.28, 0.8), Vector3.new(5, 0.16, 5.8), color, M.SmoothPlastic, { Reflectance = 0.15, CanCollide = false })
+	for _, sx in { -1, 1 } do
+		for _, sz in { -3.8, 3.8 } do
+			P(parent, name .. "_Wheel", cf * CFrame.new(sx * 3.0, 1.1, sz), Vector3.new(0.8, 2.2, 2.2), C.black, M.SmoothPlastic, withShape(Enum.PartType.Cylinder, DECOR))
+		end
+		P(parent, name .. "_Headlight", cf * CFrame.new(sx * 2, 1.5, -6), Vector3.new(1.1, 0.5, 0.15), C.warmWhite, M.Neon, DECOR)
+		P(parent, name .. "_Taillight", cf * CFrame.new(sx * 2, 1.6, 6), Vector3.new(1.1, 0.5, 0.15), Color3.fromRGB(255, 40, 40), M.Neon, DECOR)
+	end
+end
+
+local function buildWorld()
+	local s, pk, pr = folders.Streets, folders.Parking, folders.Perimeter
+
+	-- terreno: un unico bloque que cubre calles, aceras y parqueadero (sin huecos al vacio)
+	B(s, "Ground", -100, -4, -100, 100, ROAD_Y, 158, ASPHALT, M.Asphalt)
+
+	-- aceras interiores (rodean el club) y exteriores (junto al muro). Todas en y = 0.
+	B(s, "SidewalkIn_N", -66, -3, -66, 66, 0, -50, WALK, M.Concrete)
+	B(s, "SidewalkIn_S", -66, -3, 50, 66, 0, 66, WALK, M.Concrete)
+	B(s, "SidewalkIn_W", -66, -3, -50, -50, 0, 50, WALK, M.Concrete)
+	B(s, "SidewalkIn_E", 50, -3, -50, 66, 0, 50, WALK, M.Concrete)
+	B(s, "SidewalkOut_N", -98, -3, -98, 98, 0, -86, WALK, M.Concrete)
+	B(s, "SidewalkOut_W", -98, -3, -86, -86, 0, 86, WALK, M.Concrete)
+	B(s, "SidewalkOut_E", 86, -3, -86, 98, 0, 86, WALK, M.Concrete)
+	-- acera sur partida por las dos entradas de vehiculos (x +-74..86), que quedan a ras del asfalto
+	B(s, "SidewalkOut_S1", -98, -3, 86, -86, 0, 98, WALK, M.Concrete)
+	B(s, "SidewalkOut_S2", -74, -3, 86, 74, 0, 98, WALK, M.Concrete)
+	B(s, "SidewalkOut_S3", 86, -3, 86, 98, 0, 98, WALK, M.Concrete)
+
+	-- bordillos (franja clara de 0.5 en el borde de cada acera); abiertos en los pasos de peatones
+	local function curb(name, x1, z1, x2, z2)
+		B(s, name, x1, -3, z1, x2, 0.08, z2, CURB, M.Concrete)
+	end
+	curb("CurbIn_N1", -66, -66, -6, -65.5)
+	curb("CurbIn_N2", 6, -66, 66, -65.5)
+	curb("CurbIn_S1", -66, 65.5, -6, 66)
+	curb("CurbIn_S2", 6, 65.5, 66, 66)
+	curb("CurbIn_W1", -66, -50, -65.5, -6)
+	curb("CurbIn_W2", -66, 6, -65.5, 50)
+	curb("CurbIn_E1", 65.5, -50, 66, -6)
+	curb("CurbIn_E2", 65.5, 6, 66, 50)
+	curb("CurbOut_N1", -98, -86.5, -6, -86)
+	curb("CurbOut_N2", 6, -86.5, 98, -86)
+	curb("CurbOut_W1", -86.5, -86, -86, -6)
+	curb("CurbOut_W2", -86.5, 6, -86, 86)
+	curb("CurbOut_E1", 86, -86, 86.5, -6)
+	curb("CurbOut_E2", 86, 6, 86.5, 86)
+	curb("CurbOut_S1", -98, 86, -86, 86.5)
+	curb("CurbOut_S2", -74, 86, -6, 86.5)
+	curb("CurbOut_S3", 6, 86, 74, 86.5)
+	curb("CurbOut_S4", 86, 86, 98, 86.5)
+
+	-- pasos de peatones elevados (a ras de aceras): sur (frente a la puerta), norte, oeste y este
+	crosswalk(s, "CrosswalkS", 0, 76, "z", 20)
+	crosswalk(s, "CrosswalkN", 0, -76, "z", 20)
+	crosswalk(s, "CrosswalkW", -76, 0, "x", 20)
+	crosswalk(s, "CrosswalkE", 76, 0, "x", 20)
+
+	-- lineas de detencion (una por sentido y paso)
+	paint(s, "StopLine_S1", -8, 76.6, -7.4, 85.4, PAINT_W)
+	paint(s, "StopLine_S2", 7.4, 66.6, 8, 75.4, PAINT_W)
+	paint(s, "StopLine_N1", -8, -75.4, -7.4, -66.6, PAINT_W)
+	paint(s, "StopLine_N2", 7.4, -85.4, 8, -76.6, PAINT_W)
+	paint(s, "StopLine_W1", -85.4, -8, -76.6, -7.4, PAINT_W)
+	paint(s, "StopLine_W2", -75.4, 7.4, -66.6, 8, PAINT_W)
+	paint(s, "StopLine_E1", 66.6, -8, 75.4, -7.4, PAINT_W)
+	paint(s, "StopLine_E2", 76.6, 7.4, 85.4, 8, PAINT_W)
+
+	-- lineas de borde (blancas continuas) y eje central (amarillo discontinuo)
+	paint(s, "EdgeLine_S_in", -86, 66.6, 86, 66.9, PAINT_W)
+	paint(s, "EdgeLine_S_out", -74, 85.1, 74, 85.4, PAINT_W)
+	paint(s, "EdgeLine_N_out", -86, -85.4, 86, -85.1, PAINT_W)
+	paint(s, "EdgeLine_N_in", -86, -66.9, 86, -66.6, PAINT_W)
+	paint(s, "EdgeLine_W_out", -85.4, -66, -85.1, 66, PAINT_W)
+	paint(s, "EdgeLine_W_in", -66.9, -66, -66.6, 66, PAINT_W)
+	paint(s, "EdgeLine_E_in", 66.6, -66, 66.9, 66, PAINT_W)
+	paint(s, "EdgeLine_E_out", 85.1, -66, 85.4, 66, PAINT_W)
+	local function dashes(name, along, fixed, from, to, y)
+		local c = from
+		while c < to do
+			if not (c + 4 > -9 and c < 9) then
+				if along == "x" then
+					paint(s, name, c, fixed - 0.15, c + 4, fixed + 0.15, PAINT_Y, y)
+				else
+					paint(s, name, fixed - 0.15, c, fixed + 0.15, c + 4, PAINT_Y, y)
+				end
+			end
+			c += 8
+		end
+	end
+	dashes("Dash_S", "x", 76, -84, 84)
+	dashes("Dash_N", "x", -76, -84, 84)
+	dashes("Dash_W", "z", -76, -64, 64)
+	dashes("Dash_E", "z", 76, -64, 64)
+
+	------------------------------------------------------------------
+	-- Parqueadero (Z 98..156): 2 filas de 16 plazas de 8x14 + calle central de 24
+	------------------------------------------------------------------
+	B(pk, "LotPad", -98, ROAD_Y, 98, 98, LOT_Y, 156, Color3.fromRGB(44, 42, 54), M.Asphalt)
+	-- bordillo del lado de la acera (abierto en el paso peatonal central y en las 2 entradas)
+	for i, r in { { -98, -86 }, { -74, -4 }, { 4, 74 }, { 86, 98 } } do
+		B(pk, "LotCurb" .. i, r[1], -3, 97.5, r[2], 0.08, 98, CURB, M.Concrete)
+	end
+	-- camino peatonal central (a ras de las aceras) y paso elevado sobre la calle interior
+	B(pk, "LotWalk1", -4, -3, 98, 4, 0, 112, WALK2, M.Concrete)
+	B(pk, "LotWalk2", -4, -3, 136, 4, 0, 150, WALK2, M.Concrete)
+	crosswalk(pk, "LotCross", 0, 124, "z", 24)
+
+	-- plazas: lineas divisorias y linea frontal, para las dos filas
+	for _, row in { { 98, 112, 112 }, { 136, 150, 136 } } do
+		for k = 0, 7 do
+			local xl, xr = -68 + 8 * k, 12 + 8 * k
+			paint(pk, "SlotLine", xl - 0.15, row[1], xl + 0.15, row[2], PAINT_W, LOT_Y)
+			paint(pk, "SlotLine", xr - 0.15, row[1], xr + 0.15, row[2], PAINT_W, LOT_Y)
+		end
+		paint(pk, "SlotFront", -68, row[3] - 0.15, -12, row[3] + 0.15, PAINT_W, LOT_Y)
+		paint(pk, "SlotFront", 12, row[3] - 0.15, 68, row[3] + 0.15, PAINT_W, LOT_Y)
+	end
+	dashes("LotDash", "x", 124, -92, 92, LOT_Y)
+
+	-- plazas accesibles (las mas cercanas al camino peatonal), pintadas de azul y senalizadas
+	paint(pk, "AccessL", -11, 99, -5, 111, PAINT_B, LOT_Y)
+	paint(pk, "AccessR", 5, 99, 11, 111, PAINT_B, LOT_Y)
+	signPost(pk, "AccessSignL", -12, LOT_Y, 99.5, 8, 6, 1.6, 0, 1, "ACCESIBLE", C.cyan)
+	signPost(pk, "AccessSignR", 12, LOT_Y, 99.5, 8, 6, 1.6, 0, 1, "ACCESIBLE", C.cyan)
+
+	-- coches aparcados (algunas plazas libres; las accesibles siempre libres)
+	local cars = {
+		{ -64, 105, 0 }, { -56, 105, 0 }, { -40, 105, 0 }, { -32, 105, 0 }, { 24, 105, 0 }, { 40, 105, 0 }, { 56, 105, 0 },
+		{ -56, 143, math.pi }, { -48, 143, math.pi }, { -24, 143, math.pi }, { -16, 143, math.pi }, { 16, 143, math.pi },
+		{ 32, 143, math.pi }, { 48, 143, math.pi }, { 64, 143, math.pi },
+	}
+	for i, c in cars do
+		car(pk, "Car" .. i, c[1], c[2], c[3], CAR_COLORS[(i - 1) % #CAR_COLORS + 1])
+	end
+
+	-- entradas y salida de vehiculos: portico con cartel por ambos lados
+	for _, g in { { 80, "ENTRADA", Color3.fromRGB(110, 235, 70) }, { -80, "SALIDA", Color3.fromRGB(255, 80, 80) } } do
+		local gx = g[1]
+		for _, px in { gx - 6.5, gx + 6.5 } do
+			cyl(pk, "GatePost", px, 6, 92, 12, 0.6, C.dark, M.Metal)
+		end
+		B(pk, "GateBeam", gx - 7, 12, 91.7, gx + 7, 12.6, 92.3, C.dark, M.Metal)
+		for _, hx in { gx - 3.5, gx + 3.5 } do
+			B(pk, "GateHanger", hx - 0.1, 11, 91.9, hx + 0.1, 12, 92.1, C.dark, M.Metal, DECOR)
+		end
+		sign(pk, "GateSignN", gx, 9.5, 91.65, 10, 3, 0, -1, g[2], g[3], false)
+		sign(pk, "GateSignS", gx, 9.5, 92.35, 10, 3, 0, 1, g[2], g[3], false)
+	end
+	signPost(pk, "StopSign", -71.5, 0, 92, 8, 3, 3, 0, 1, "PARE", Color3.fromRGB(255, 70, 70))
+
+	-- carteles direccionales y nombres de calle
+	signPost(s, "DirSignA", 18, 0, 92, 9, 8, 2, 0, -1, "PARQUEADERO v", C.cyan)
+	signPost(s, "DirSignB", 18, 0, 92.9, 9, 8, 2, 0, 1, "AURA CLUB ^", C.magenta)
+	signPost(s, "NameSignS", -92, 0, 90, 8, 7, 2, 0, -1, "AV. AURA", C.white)
+	signPost(s, "NameSignN", 92, 0, -90, 8, 7, 2, 0, 1, "CALLE LUNA", C.white)
+	signPost(s, "NameSignW", -90, 0, -40, 8, 7, 2, 1, 0, "CALLE SOL", C.white)
+	signPost(s, "NameSignE", 90, 0, 40, 8, 7, 2, -1, 0, "CALLE ESTRELLA", C.white)
+	-- aviso de paso de peatones a ambos lados de cada cruce, mirando al trafico
+	for i, c in { { -9, 64.5, -1, 0 }, { 9, 64.5, 1, 0 }, { -9, -64.5, -1, 0 }, { 9, -64.5, 1, 0 }, { -64.5, -9, 0, -1 }, { -64.5, 9, 0, 1 }, { 64.5, -9, 0, -1 }, { 64.5, 9, 0, 1 } } do
+		signPost(s, "PedSign" .. i, c[1], 0, c[2], 7, 4, 2, c[3], c[4], "PEATONES", C.cyan)
+	end
+
+	-- iluminacion: farolas con luz real (alcance 48) en el parqueadero, las aceras exteriores y la plaza
+	for _, z in { 112, 136 } do
+		for _, x in { -52, -20, 20, 52 } do
+			streetLamp(pk, "LotLamp", x, LOT_Y, z, 48)
+		end
+	end
+	for _, x in { -88, 88 } do
+		for _, z in { 104, 134, 150 } do
+			streetLamp(pk, "LotSideLamp", x, LOT_Y, z, 48)
+		end
+	end
+	for _, x in { -60, 0, 60 } do
+		streetLamp(s, "RingLamp", x, 0, -92, 48)
+	end
+	for _, x in { -45, 45 } do
+		streetLamp(s, "RingLamp", x, 0, 92, 48)
+	end
+	for _, z in { -45, 45 } do
+		streetLamp(s, "RingLamp", -92, 0, z, 48)
+		streetLamp(s, "RingLamp", 92, 0, z, 48)
+	end
+	for _, x in { -24, 24 } do
+		streetLamp(s, "PlazaLamp", x, 0, 60, 40)
+	end
+
+	-- arbolado y seto al fondo del parqueadero, y calabazas de bienvenida en el camino peatonal
+	for i, x in { -84, -60, -36, -12, 12, 36, 60, 84 } do
+		cyl(pk, "TreeTrunk" .. i, x, LOT_Y + 2.5, 153, 5, 0.9, C.wood, M.Wood)
+		ball(pk, "TreeCrown" .. i, x, LOT_Y + 7.5, 153, 7, C.green, M.Grass, DECOR)
+	end
+	B(pk, "HedgeL", -96, LOT_Y, 151, -18, 1.4, 154, C.green, M.Grass)
+	B(pk, "HedgeR", 18, LOT_Y, 151, 96, 1.4, 154, C.green, M.Grass)
+	for i, sx in { -1, 1 } do
+		pumpkin(pk, "LotPumpkin" .. i, sx * 3.2, 0, 100, math.pi, 0.5, { mini = true })
+	end
+
+	------------------------------------------------------------------
+	-- Perimetro: muro visible de 10 con pilares y neon, mas barrera invisible hasta y = 70
+	------------------------------------------------------------------
+	local WALLC = Color3.fromRGB(26, 20, 38)
+	B(pr, "PerimeterWall_N", -100, -4, -100, 100, 10, WORLD.z1, WALLC, M.Concrete)
+	B(pr, "PerimeterWall_S", -100, -4, WORLD.z2, 100, 10, 158, WALLC, M.Concrete)
+	B(pr, "PerimeterWall_W", -100, -4, WORLD.z1, WORLD.x1, 10, WORLD.z2, WALLC, M.Concrete)
+	B(pr, "PerimeterWall_E", WORLD.x2, -4, WORLD.z1, 100, 10, WORLD.z2, WALLC, M.Concrete)
+	glow(pr, "PerimeterLed_N", WORLD.x1, 8.6, WORLD.z1, WORLD.x2, 8.9, WORLD.z1 + 0.15, C.purple)
+	glow(pr, "PerimeterLed_S", WORLD.x1, 8.6, WORLD.z2 - 0.15, WORLD.x2, 8.9, WORLD.z2, C.purple)
+	glow(pr, "PerimeterLed_W", WORLD.x1, 8.6, WORLD.z1, WORLD.x1 + 0.15, 8.9, WORLD.z2, C.purple)
+	glow(pr, "PerimeterLed_E", WORLD.x2 - 0.15, 8.6, WORLD.z1, WORLD.x2, 8.9, WORLD.z2, C.purple)
+	for i = 0, 8 do
+		local x = -96 + i * 24
+		B(pr, "PillarN", x - 1.2, 0, WORLD.z1, x + 1.2, 11, WORLD.z1 + 2.4, C.dark, M.Concrete)
+		glow(pr, "PillarNCap", x - 1.2, 11, WORLD.z1, x + 1.2, 11.3, WORLD.z1 + 2.4, C.orange)
+		B(pr, "PillarS", x - 1.2, 0, WORLD.z2 - 2.4, x + 1.2, 11, WORLD.z2, C.dark, M.Concrete)
+		glow(pr, "PillarSCap", x - 1.2, 11, WORLD.z2 - 2.4, x + 1.2, 11.3, WORLD.z2, C.orange)
+	end
+	for i = 0, 9 do
+		local z = -86 + i * 24
+		B(pr, "PillarW", WORLD.x1, 0, z - 1.2, WORLD.x1 + 2.4, 11, z + 1.2, C.dark, M.Concrete)
+		glow(pr, "PillarWCap", WORLD.x1, 11, z - 1.2, WORLD.x1 + 2.4, 11.3, z + 1.2, C.orange)
+		B(pr, "PillarE", WORLD.x2 - 2.4, 0, z - 1.2, WORLD.x2, 11, z + 1.2, C.dark, M.Concrete)
+		glow(pr, "PillarECap", WORLD.x2 - 2.4, 11, z - 1.2, WORLD.x2, 11.3, z + 1.2, C.orange)
+	end
+	if CONFIG.Boundary then
+		local inv = { Transparency = 1, CastShadow = false }
+		B(pr, "Boundary_N", -100, 10, -100, 100, 70, WORLD.z1, C.black, M.SmoothPlastic, inv)
+		B(pr, "Boundary_S", -100, 10, WORLD.z2, 100, 70, 158, C.black, M.SmoothPlastic, inv)
+		B(pr, "Boundary_W", -100, 10, WORLD.z1, WORLD.x1, 70, WORLD.z2, C.black, M.SmoothPlastic, inv)
+		B(pr, "Boundary_E", WORLD.x2, 10, WORLD.z1, 100, 70, WORLD.z2, C.black, M.SmoothPlastic, inv)
+	end
+end
+
+------------------------------------------------------------------------
 -- Exterior y estructura
 ------------------------------------------------------------------------
 local function buildShell()
 	local e = folders.Exterior
-	B(e, "Street", -120, -6, -120, 120, -0.2, 120, Color3.fromRGB(28, 28, 34), M.Asphalt)
-	-- acera a ras del suelo del club (4 tramos: no se solapa con la losa del piso 1)
-	local walk = Color3.fromRGB(70, 66, 80)
-	B(e, "Sidewalk_S", -60, -3, 50, 60, 0, 75, walk, M.Concrete)
-	B(e, "Sidewalk_N", -60, -3, -60, 60, 0, -50, walk, M.Concrete)
-	B(e, "Sidewalk_W", -60, -3, -50, -50, 0, 50, walk, M.Concrete)
-	B(e, "Sidewalk_E", 50, -3, -50, 60, 0, 50, walk, M.Concrete)
-	if CONFIG.Boundary then
-		local inv = { Transparency = 1, CastShadow = false }
-		B(e, "Boundary_N", -122, -0.2, -122, 122, 60, -120, C.black, M.SmoothPlastic, inv)
-		B(e, "Boundary_S", -122, -0.2, 120, 122, 60, 122, C.black, M.SmoothPlastic, inv)
-		B(e, "Boundary_W", -122, -0.2, -120, -120, 60, 120, C.black, M.SmoothPlastic, inv)
-		B(e, "Boundary_E", 120, -0.2, -120, 122, 60, 120, C.black, M.SmoothPlastic, inv)
-	end
-
 	-- paredes del piso 1 (entrada al sur: hueco de 14 x 11)
 	local f1 = folders.Floor1
 	B(f1, "Wall_N", -50, 0, -50, 50, FLOOR_H, -48, C.wall, M.Concrete)
@@ -968,11 +1364,11 @@ local function buildShell()
 
 	-- cola de entrada: postes dorados y cuerdas de terciopelo
 	for _, sx in { -6, 6 } do
-		for k = 0, 3 do
+		for k = 0, 2 do
 			local z = 54 + k * 5
 			cyl(e, "Post", sx, 1.5, z, 3, 0.6, C.gold, M.Metal)
 			ball(e, "PostTop", sx, 3.1, z, 0.9, C.gold, M.Metal)
-			if k < 3 then
+			if k < 2 then
 				B(e, "Rope", sx - 0.15, 2.3, z, sx + 0.15, 2.7, z + 5, C.velvet, M.Fabric, DECOR)
 			end
 		end
@@ -1050,6 +1446,8 @@ local function buildFloor1()
 			light = 36,
 			spot = true,
 			brightness = 3,
+			shadows = true,
+			shaft = { 16, 0.5, 5 },
 		})
 	end
 	for i, x in { -12, -4, 4, 12 } do
@@ -1084,19 +1482,13 @@ local function buildFloor1()
 		for k, z in { -32, -20, -8 } do
 			local colors = { C.cyan, C.magenta, C.purple }
 			local col = colors[k]
-			glow(f, "LaserHead", x - 0.8, 39.5, z - 0.8, x + 0.8, 40.7, z + 0.8, col, { light = 10 })
-			local beam = P(
-				folders.Effects,
-				"Laser",
-				CFrame.new(x, 40, z),
-				Vector3.new(0.5, 0.5, BEAM_LEN),
-				col,
-				M.Neon,
-				{ CanCollide = false, CastShadow = false, Transparency = 0.45 }
-			)
+			local head = glow(f, "LaserHead", x - 0.8, 39.5, z - 0.8, x + 0.8, 40.7, z + 0.8, col, { light = 10 })
+			-- haz translucido de 3 capas; solo se mueve la punta (un Attachment) en cada tick
+			local tip = laserBeam(head, col)
 			table.insert(fx.beams, {
-				part = beam,
-				origin = Vector3.new(x, 40, z),
+				head = head,
+				tip = tip,
+				origin = Vector3.new(x, 40.1, z),
 				yaw = math.pi + side * -0.4,
 				swing = 0.4,
 				speed = 1 + k * 0.35,
@@ -1369,6 +1761,8 @@ local function buildFloor3()
 			light = 34,
 			spot = true,
 			brightness = 3,
+			shadows = true,
+			shaft = { 11, 0.5, 4 },
 		})
 	end
 	for i, x in { -10, 10 } do
@@ -1453,19 +1847,24 @@ local function buildLighting()
 	Lighting.Brightness = 1
 	-- ambiente base morado oscuro pero legible (en Voxel/Compatibility no hay rebote de luz:
 	-- con valores mas bajos el interior se ve negro mientras el motor construye la iluminacion)
-	Lighting.Ambient = Color3.fromRGB(46, 32, 78)
-	Lighting.OutdoorAmbient = Color3.fromRGB(40, 30, 72)
-	Lighting.ExposureCompensation = 0.5
+	local amb = LOOK.AmbientBoost
+	local function boosted(r, g, b)
+		return Color3.fromRGB(math.min(255, math.floor(r * amb + 0.5)), math.min(255, math.floor(g * amb + 0.5)), math.min(255, math.floor(b * amb + 0.5)))
+	end
+	Lighting.Ambient = boosted(46, 32, 78)
+	Lighting.OutdoorAmbient = boosted(40, 30, 72)
+	Lighting.ExposureCompensation = LOOK.Exposure
 	Lighting.EnvironmentDiffuseScale = 0.4
-	Lighting.EnvironmentSpecularScale = 1
-	Lighting.ShadowSoftness = 0.25
+	Lighting.EnvironmentSpecularScale = LOOK.Reflections
+	Lighting.ShadowSoftness = LOOK.ShadowSoftness
 	Lighting.GlobalShadows = true
 
+	-- bloom moderado: el neon brilla pero no tapa el detalle
 	local bloom = Instance.new("BloomEffect")
 	bloom.Name = "AuraBloom"
-	bloom.Intensity = 1.3
-	bloom.Size = 42
-	bloom.Threshold = 0.85
+	bloom.Intensity = LOOK.Bloom.Intensity
+	bloom.Size = LOOK.Bloom.Size
+	bloom.Threshold = LOOK.Bloom.Threshold
 	bloom.Parent = Lighting
 
 	local dof = Instance.new("DepthOfFieldEffect")
@@ -1478,9 +1877,9 @@ local function buildLighting()
 
 	local cc = Instance.new("ColorCorrectionEffect")
 	cc.Name = "AuraColor"
-	cc.Contrast = 0.18
-	cc.Saturation = 0.3
-	cc.TintColor = Color3.fromRGB(235, 220, 255)
+	cc.Contrast = 0.12
+	cc.Saturation = 0.22
+	cc.TintColor = Color3.fromRGB(235, 225, 255)
 	cc.Parent = Lighting
 
 	local atm = Lighting:FindFirstChildOfClass("Atmosphere")
@@ -1488,7 +1887,7 @@ local function buildLighting()
 		atm = Instance.new("Atmosphere")
 	end
 	atm.Name = "AuraAtmosphere"
-	atm.Density = 0.2
+	atm.Density = 0.18
 	atm.Offset = 0.2
 	atm.Color = Color3.fromRGB(120, 70, 190)
 	atm.Decay = Color3.fromRGB(60, 30, 110)
@@ -1500,10 +1899,11 @@ end
 local function updateBeams(t)
 	for _, b in fx.beams do
 		local ry = b.yaw + b.swing * math.sin(t * b.speed + b.phase)
-		b.part.CFrame = CFrame.new(b.origin)
+		local tip = CFrame.new(b.origin)
 			* CFrame.Angles(0, ry, 0)
 			* CFrame.Angles(BEAM_PITCH, 0, 0)
-			* CFrame.new(0, 0, -BEAM_LEN / 2)
+			* Vector3.new(0, 0, -BEAM_LEN)
+		b.tip.Position = tip - b.origin
 	end
 end
 
@@ -1578,7 +1978,7 @@ local function startAnimations()
 			for _, tile in fx.tiles do
 				-- color cuantizado: solo se escribe cuando cambia el paso
 				local hq = math.floor((0.5 + 0.4 * (0.5 + 0.5 * math.sin(t * 0.7 + (tile.ix + tile.iz) * 0.35))) * 24)
-				local vq = math.floor((0.3 + 0.6 * (0.5 + 0.5 * math.sin(t * 3 + tile.ix * 0.8 - tile.iz * 0.8))) * 8)
+				local vq = math.floor((0.3 + 0.6 * (0.5 + 0.5 * math.sin(t * 3 + tile.ix * 0.8 - tile.iz * 0.8))) * LOOK.TileBrightness * 8)
 				local key = hq * 16 + vq
 				if tile.key ~= key then
 					tile.key = key
@@ -1597,6 +1997,9 @@ local function startAnimations()
 					g.part.Color = c
 					if g.light then
 						g.light.Color = c
+					end
+					if g.beam then
+						g.beam.Color = ColorSequence.new(c)
 					end
 				end
 			end
@@ -1634,6 +2037,7 @@ end
 ------------------------------------------------------------------------
 -- Ejecucion
 ------------------------------------------------------------------------
+buildWorld()
 buildShell()
 buildFloor1()
 buildFloor2()

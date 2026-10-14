@@ -134,21 +134,21 @@ check("escalera 2: 24 peldanos de 1 stud hasta y=48", stairInfo(-43, -38, 1, 24)
 check("salida escalera 1 conecta con el suelo del piso 2", hasTop(43, -12, 24))
 check("salida escalera 2 conecta con el suelo del piso 3", hasTop(-43, 12, 48))
 
--- BFS de navegacion (jugador 2x2x5, escalon max 1.6) -------------------------
-local CELL, ORIGIN, N = 1, -53, 106
+-- BFS de navegacion (jugador 2x2x5) sobre TODO el terreno: club, calles, aceras y parqueadero ---
+local CELL, OX, OZ, NX, NZ = 1, -101, -101, 202, 260
 local BODY = 1 -- semilado del cuerpo (jugador 2x2)
 local cellColl = {}
-for i = 0, N - 1 do
+for i = 0, NX - 1 do
 	cellColl[i] = {}
-	for j = 0, N - 1 do
+	for j = 0, NZ - 1 do
 		cellColl[i][j] = {}
 	end
 end
 for _, c in colliders do
-	local i0 = math.max(0, math.floor((c.x1 - BODY - ORIGIN) / CELL))
-	local i1 = math.min(N - 1, math.floor((c.x2 + BODY - ORIGIN) / CELL))
-	local j0 = math.max(0, math.floor((c.z1 - BODY - ORIGIN) / CELL))
-	local j1 = math.min(N - 1, math.floor((c.z2 + BODY - ORIGIN) / CELL))
+	local i0 = math.max(0, math.floor((c.x1 - BODY - OX) / CELL))
+	local i1 = math.min(NX - 1, math.floor((c.x2 + BODY - OX) / CELL))
+	local j0 = math.max(0, math.floor((c.z1 - BODY - OZ) / CELL))
+	local j1 = math.min(NZ - 1, math.floor((c.z2 + BODY - OZ) / CELL))
 	for i = i0, i1 do
 		for j = j0, j1 do
 			table.insert(cellColl[i][j], c)
@@ -157,10 +157,10 @@ for _, c in colliders do
 end
 local nodes = {} -- [i][j] = lista de alturas validas
 local totalNodes = 0
-for i = 0, N - 1 do
+for i = 0, NX - 1 do
 	nodes[i] = {}
-	for j = 0, N - 1 do
-		local cx, cz = ORIGIN + (i + 0.5) * CELL, ORIGIN + (j + 0.5) * CELL
+	for j = 0, NZ - 1 do
+		local cx, cz = OX + (i + 0.5) * CELL, OZ + (j + 0.5) * CELL
 		local list, seen = {}, {}
 		for _, c in cellColl[i][j] do
 			if cx > c.x1 and cx < c.x2 and cz > c.z1 and cz < c.z2 and c.y2 < 70 then
@@ -177,12 +177,14 @@ for i = 0, N - 1 do
 							break
 						end
 					end
-					for _, o in cellColl[i][j] do
-						local ox = o.x1 < cx + BODY - 0.05 and o.x2 > cx - BODY + 0.05
-						local oz = o.z1 < cz + BODY - 0.05 and o.z2 > cz - BODY + 0.05
-						if ox and oz and o.y2 > h + 1.7 and o.y1 < h + 5 then
-							blocked = true
-							break
+					if not blocked then
+						for _, o in cellColl[i][j] do
+							local ox = o.x1 < cx + BODY - 0.05 and o.x2 > cx - BODY + 0.05
+							local oz = o.z1 < cz + BODY - 0.05 and o.z2 > cz - BODY + 0.05
+							if ox and oz and o.y2 > h + 1.7 and o.y1 < h + 5 then
+								blocked = true
+								break
+							end
 						end
 					end
 					if not blocked then
@@ -196,51 +198,59 @@ for i = 0, N - 1 do
 	end
 end
 local function key(i, j, h)
-	return i * 100000 + j * 1000 + math.floor(h * 10 + 0.5)
+	return (i * 1000 + j) * 10000 + math.floor(h * 10 + 0.5) + 2000
 end
-local visited = {}
-local queue, head = {}, 1
-local function startNodeNear(x, z)
-	local i, j = math.floor((x - ORIGIN) / CELL), math.floor((z - ORIGIN) / CELL)
+local function ci(x)
+	return math.floor((x - OX) / CELL)
+end
+local function cj(z)
+	return math.floor((z - OZ) / CELL)
+end
+local function startNodeNear(x, z, wantH)
+	local i, j = ci(x), cj(z)
 	local best
 	for _, h in nodes[i][j] do
-		if not best or math.abs(h - 0.4) < math.abs(best - 0.4) then
+		if not best or math.abs(h - wantH) < math.abs(best - wantH) then
 			best = h
 		end
 	end
 	return i, j, best
 end
-local si, sj, sh = startNodeNear(0.5, 38.5)
-check("nodo de spawn transitable", sh ~= nil and math.abs(sh - 0.4) < 0.01, sh)
-visited[key(si, sj, sh)] = true
-table.insert(queue, { si, sj, sh })
 local DIRS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
-while head <= #queue do
-	local cur = queue[head]
-	head += 1
-	for _, d in DIRS do
-		local ni, nj = cur[1] + d[1], cur[2] + d[2]
-		if ni >= 0 and ni < N and nj >= 0 and nj < N then
-			for _, h in nodes[ni][nj] do
-				if math.abs(h - cur[3]) <= 1.6 then
-					local k = key(ni, nj, h)
-					if not visited[k] then
-						visited[k] = true
-						table.insert(queue, { ni, nj, h })
+-- recorrido en anchura desde un nodo; maxStep = desnivel maximo entre celdas contiguas
+local function bfs(si, sj, sh, maxStep)
+	local vis, queue, head = {}, {}, 1
+	vis[key(si, sj, sh)] = true
+	table.insert(queue, { si, sj, sh })
+	while head <= #queue do
+		local cur = queue[head]
+		head += 1
+		for _, d in DIRS do
+			local ni, nj = cur[1] + d[1], cur[2] + d[2]
+			if ni >= 0 and ni < NX and nj >= 0 and nj < NZ then
+				for _, h in nodes[ni][nj] do
+					if math.abs(h - cur[3]) <= maxStep then
+						local k = key(ni, nj, h)
+						if not vis[k] then
+							vis[k] = true
+							table.insert(queue, { ni, nj, h })
+						end
 					end
 				end
 			end
 		end
 	end
+	return vis, #queue
 end
-local function reachedIn(x1, z1, x2, z2, h)
-	local i0, i1 = math.floor((x1 - ORIGIN) / CELL), math.floor((x2 - ORIGIN) / CELL)
-	local j0, j1 = math.floor((z1 - ORIGIN) / CELL), math.floor((z2 - ORIGIN) / CELL)
+local si, sj, sh = startNodeNear(0.5, 38.5, 0.4)
+check("nodo de spawn transitable", sh ~= nil and math.abs(sh - 0.4) < 0.01, sh)
+local visited, nVisited = bfs(si, sj, sh, 1.6)
+local function reachedInSet(set, x1, z1, x2, z2, h)
 	local n = 0
-	for i = i0, i1 do
-		for j = j0, j1 do
+	for i = ci(x1), ci(x2) do
+		for j = cj(z1), cj(z2) do
 			for _, hh in nodes[i][j] do
-				if math.abs(hh - h) < 0.06 and visited[key(i, j, hh)] then
+				if math.abs(hh - h) < 0.06 and set[key(i, j, hh)] then
 					n += 1
 				end
 			end
@@ -248,16 +258,13 @@ local function reachedIn(x1, z1, x2, z2, h)
 	end
 	return n
 end
-local function reached(x, z, h)
-	local i, j = math.floor((x - ORIGIN) / CELL), math.floor((z - ORIGIN) / CELL)
-	for _, hh in nodes[i][j] do
-		if math.abs(hh - h) < 0.06 and visited[key(i, j, hh)] then
-			return true
-		end
-	end
-	return false
+local function reachedIn(x1, z1, x2, z2, h)
+	return reachedInSet(visited, x1, z1, x2, z2, h)
 end
-print(string.format("        nodos transitables=%d, alcanzados desde el spawn=%d", totalNodes, #queue))
+local function reached(x, z, h)
+	return reachedIn(x, z, x, z, h) > 0
+end
+print(string.format("        nodos transitables=%d, alcanzados desde el spawn=%d", totalNodes, nVisited))
 check("alcanza el escenario DJ del piso 1 (y=3)", reachedIn(-17, -46, 17, -38, 3) > 100)
 check("alcanza la pista LED (y=0.2)", reachedIn(-23, -33, 23, 13, 0.2) > 1000)
 check("alcanza la zona de la barra del piso 1", reachedIn(-39, -25, -37.5, 5, 0) > 30)
@@ -272,8 +279,8 @@ check("alcanza el fondo de la piscina (y=47)", reachedIn(15, 23, 33, 43, 47) > 1
 -- ningun suelo "perdido": fraccion alcanzable por nivel
 local function ratio(level)
 	local tot, ok = 0, 0
-	for i = 0, N - 1 do
-		for j = 0, N - 1 do
+	for i = 0, NX - 1 do
+		for j = 0, NZ - 1 do
 			for _, h in nodes[i][j] do
 				if math.abs(h - level) < 0.06 then
 					tot += 1
@@ -292,8 +299,8 @@ for _, lvl in { { 0.2, "piso 1 (pista)" }, { 24, "piso 2" }, { 48, "piso 3" } } 
 end
 
 -- animaciones: 90 s simulados a 30 fps sin errores, lasers dentro del atrio ----
-local beams = club:FindFirstChild("Effects"):GetChildren()
-check("6 lasers creados", #beams == 6, #beams)
+local beams = fx.beams
+check("6 laseres creados", #beams == 6, #beams)
 local tileBefore = nil
 for _, d in club:GetDescendants() do
 	if d.Name == "Tile" then
@@ -307,9 +314,8 @@ local ok, err = pcall(function()
 	for _ = 1, 90 * 30 do
 		fireHeartbeat(1 / 30)
 		for _, b in beams do
-			local cf = b.CFrame
-			local tip = cf * Vector3.new(0, 0, -b.Size.Z / 2)
-			local tail = cf * Vector3.new(0, 0, b.Size.Z / 2)
+			local tip = b.head.CFrame.Position + b.tip.Position
+			local tail = b.origin
 			for _, p in { tip, tail } do
 				local out = math.max(math.abs(p.X) - 24, -34 - p.Z, p.Z - 14, 0)
 				if out > worst then
@@ -432,12 +438,12 @@ local function lit(x, y, z)
 end
 for _, lvl in { { 0.2, "piso 1" }, { 24, "piso 2" }, { 48, "piso 3" } } do
 	local tot, ok = 0, 0
-	for i = 0, N - 1 do
-		for j = 0, N - 1 do
+	for i = 0, NX - 1 do
+		for j = 0, NZ - 1 do
 			for _, h in nodes[i][j] do
 				if math.abs(h - lvl[1]) < 0.06 and visited[key(i, j, h)] then
 					tot += 1
-					if lit(ORIGIN + (i + 0.5) * CELL, h + 3, ORIGIN + (j + 0.5) * CELL) then
+					if lit(OX + (i + 0.5) * CELL, h + 3, OZ + (j + 0.5) * CELL) then
 						ok += 1
 					end
 				end
@@ -446,7 +452,7 @@ for _, lvl in { { 0.2, "piso 1" }, { 24, "piso 2" }, { 48, "piso 3" } } do
 	end
 	check(string.format("cobertura de luz %s: %d/%d celdas (%.0f%%)", lvl[2], ok, tot, 100 * ok / math.max(1, tot)), tot > 0 and ok / tot >= 0.9)
 end
-local amb = Lighting.Ambient
+local amb = __lighting.Ambient
 check("ambiente base legible (luminancia media >= 0.15)", (amb.R + amb.G + amb.B) / 3 >= 0.15, (amb.R + amb.G + amb.B) / 3)
 check("luces < 150 con el relleno", lights + 0 < 150 and #lightsList < 150, #lightsList)
 
@@ -514,8 +520,8 @@ check("altura libre >= 7 studs sobre todos los peldanos", minClear >= 7, minClea
 -- circulacion: filas alcanzables a todo lo ancho de peldanos y descansos
 local function visitedRow(x1, x2, z, h)
 	local n = 0
-	local j = math.floor((z - ORIGIN) / CELL)
-	for i = math.floor((x1 - ORIGIN) / CELL), math.floor((x2 - ORIGIN) / CELL) do
+	local j = math.floor((z - OZ) / CELL)
+	for i = math.floor((x1 - OX) / CELL), math.floor((x2 - OX) / CELL) do
 		for _, hh in nodes[i][j] do
 			if math.abs(hh - h) < 0.06 and visited[key(i, j, hh)] then
 				n += 1
@@ -630,7 +636,218 @@ check("la decoracion de Halloween no colisiona (no obstruye)", solidDecor == nil
 	end
 	return true
 end)(), solidDecor)
-check("partes totales razonables (< 3500)", #parts < 3500, #parts)
+check("partes totales razonables (< 4000)", #parts < 4000, #parts)
+
+-- ================= CALIDAD DE LUCES Y HACES =================
+local beamLayers, shafts = {}, {}
+for _, d in club:GetDescendants() do
+	if d:IsA("Beam") and string.find(d.Name, "^LaserBeam") then
+		table.insert(beamLayers, d)
+	elseif d:IsA("Beam") and d.Name == "LightShaft" then
+		table.insert(shafts, d)
+	end
+end
+check("laseres: 6 haces x 3 capas = 18 Beams (ya no son piezas solidas)", #beamLayers == 18, #beamLayers)
+local minCore, minMid, minHalo, endsOk = 1, 1, 1, true
+local maxWidth, maxEmission = 0, 0
+for _, b in beamLayers do
+	local ks = b.Transparency.Keypoints
+	if ks[1].Value ~= 1 or ks[#ks].Value ~= 1 then
+		endsOk = false
+	end
+	local inner = 1
+	for i = 2, #ks - 1 do
+		inner = math.min(inner, ks[i].Value)
+	end
+	local layer = tonumber(string.match(b.Name, "(%d)$"))
+	if layer == 1 then
+		minCore = math.min(minCore, inner)
+	elseif layer == 2 then
+		minMid = math.min(minMid, inner)
+	else
+		minHalo = math.min(minHalo, inner)
+	end
+	maxWidth = math.max(maxWidth, b.Width0)
+	maxEmission = math.max(maxEmission, b.LightEmission)
+end
+print(string.format("        transparencia minima de los haces: nucleo %.2f, media %.2f, halo %.2f; grosor max %.2f; emision max %.2f", minCore, minMid, minHalo, maxWidth, maxEmission))
+check("laseres: transparencia nucleo >= 0.55, media >= 0.8, halo >= 0.9", minCore >= 0.55 and minMid >= 0.8 and minHalo >= 0.9)
+check("laseres: degradado que se desvanece en origen y punta", endsOk)
+check("laseres: grosor <= 1.2 studs y emision de luz <= 0.9", maxWidth <= 1.2 and maxEmission <= 0.9)
+local shaftMin = 1
+for _, b in shafts do
+	for _, k in b.Transparency.Keypoints do
+		if k.Value < 1 then
+			shaftMin = math.min(shaftMin, k.Value)
+		end
+	end
+end
+check("8 conos de luz de focos con transparencia >= 0.88", #shafts == 8 and shaftMin >= 0.88, shaftMin)
+local bloom = __lighting:FindFirstChild("AuraBloom")
+check("bloom moderado (intensidad <= 0.6, tamano <= 24, umbral >= 0.9)", bloom.Intensity <= 0.6 and bloom.Size <= 24 and bloom.Threshold >= 0.9)
+local lookOk = true
+for _, k in { "LightIntensity", "AmbientBoost", "Exposure", "Bloom", "BeamTransparency", "BeamBrightness", "BeamWidth", "ShaftTransparency", "TileBrightness", "KeyShadows", "Reflections", "ShadowSoftness" } do
+	if LOOK[k] == nil then
+		lookOk = false
+		print("        falta CONFIG.Look." .. k)
+	end
+end
+check("ajustes CONFIG.Look expuestos (12 parametros)", lookOk)
+local shadowLights, strobeMax = 0, 0
+for _, d in club:GetDescendants() do
+	if d:IsA("SpotLight") and d.Shadows == true then
+		shadowLights += 1
+	end
+end
+for _, st in fx.strobes do
+	strobeMax = math.max(strobeMax, st.light.Brightness)
+end
+check("sombras solo en las 8 luces clave (focos)", shadowLights == 8, shadowLights)
+check("estrobos con brillo moderado (<= 4)", strobeMax <= 4, strobeMax)
+
+-- ================= MUNDO EXTERIOR: CALLES, PARQUEADERO, PERIMETRO =================
+local function solidAt(x, y, z)
+	for _, cl in colliders do
+		if x > cl.x1 and x < cl.x2 and y > cl.y1 and y < cl.y2 and z > cl.z1 and z < cl.z2 then
+			return true
+		end
+	end
+	return false
+end
+local gaps = 0
+for z = -99, 157, 2 do
+	for _, x in { -99, 99 } do
+		if not solidAt(x, 4, z) or not solidAt(x, 40, z) then
+			gaps += 1
+		end
+	end
+end
+for x = -99, 99, 2 do
+	for _, z in { -99, 157 } do
+		if not solidAt(x, 4, z) or not solidAt(x, 40, z) then
+			gaps += 1
+		end
+	end
+end
+check("perimetro cerrado: muro de 10 + barrera invisible hasta y=70 sin huecos", gaps == 0, gaps)
+local voids = 0
+for x = -97, 97, 2 do
+	for z = -97, 155, 2 do
+		if not hasTopBetween(x, z, -0.35, 0.1) then
+			voids += 1
+		end
+	end
+end
+check("sin vacio: suelo en todo el terreno jugable", voids == 0, voids)
+local minX, maxX, minZ, maxZ = 1e9, -1e9, 1e9, -1e9
+for i = 0, NX - 1 do
+	for j = 0, NZ - 1 do
+		for _, h in nodes[i][j] do
+			if visited[key(i, j, h)] then
+				local x, z = OX + (i + 0.5) * CELL, OZ + (j + 0.5) * CELL
+				minX, maxX, minZ, maxZ = math.min(minX, x), math.max(maxX, x), math.min(minZ, z), math.max(maxZ, z)
+			end
+		end
+	end
+end
+print(string.format("        area alcanzable a pie: X %.1f..%.1f, Z %.1f..%.1f", minX, maxX, minZ, maxZ))
+check("el jugador no sale del mapa (todo lo alcanzable queda dentro del muro)", minX >= -98.5 and maxX <= 98.5 and minZ >= -98.5 and maxZ <= 156.5)
+local outside
+for _, d in club:GetDescendants() do
+	if d:IsA("BasePart") then
+		local s, cf = d.Size, d.CFrame
+		if cf.px - s.X / 2 < -100.01 or cf.px + s.X / 2 > 100.01 or cf.pz - s.Z / 2 < -100.01 or cf.pz + s.Z / 2 > 158.01 then
+			outside = outside or d.Name
+		end
+	end
+end
+check("terreno ajustado: ninguna pieza sobresale de 200 x 258 studs", outside == nil, outside)
+
+-- ruta peatonal SIN escalones (>0.35): puerta -> acera -> paso elevado -> acera -> parqueadero
+local fi, fj, fh = startNodeNear(10.5, 30.5, 0)
+local flat = bfs(fi, fj, fh, 0.35)
+check("ruta peatonal: acera frente a la puerta", reachedInSet(flat, -5, 52, 5, 64, 0) >= 60)
+check("ruta peatonal: paso elevado frente a la puerta (a ras, sin escalon)", reachedInSet(flat, -5, 67, 5, 85, 0) >= 150)
+check("ruta peatonal: acera exterior", reachedInSet(flat, -3, 87, 3, 97, 0) >= 25)
+check("ruta peatonal: camino del parqueadero (fila norte)", reachedInSet(flat, -3, 99, 3, 111, 0) >= 50)
+check("ruta peatonal: paso elevado sobre la calle interior", reachedInSet(flat, -5, 113, 5, 135, 0) >= 150)
+check("ruta peatonal: camino del parqueadero (fila sur)", reachedInSet(flat, -3, 137, 3, 149, 0) >= 50)
+check("otros pasos de peatones accesibles (norte, oeste y este)", reachedInSet(visited, -5, -85, 5, -67, 0) >= 100 and reachedInSet(visited, -85, -5, -67, 5, 0) >= 100 and reachedInSet(visited, 67, -5, 85, 5, 0) >= 100)
+check("la calle (asfalto) es transitable para el jugador", reachedInSet(visited, 20, 68, 60, 84, -0.3) >= 500)
+check("aceras exteriores alcanzables (norte, oeste, este)", reachedInSet(visited, -90, -97, 90, -87, 0) >= 500 and reachedInSet(visited, -97, -80, -87, 80, 0) >= 500 and reachedInSet(visited, 87, -80, 97, 80, 0) >= 500)
+check("parqueadero: calle interior y entrada/salida de coches transitables", reachedInSet(visited, -60, 114, 60, 134, -0.24) >= 1000 and reachedInSet(visited, 75, 87, 85, 97, -0.3) >= 50 and reachedInSet(visited, -85, 87, -75, 97, -0.3) >= 50)
+
+-- parqueadero: plazas, accesibles, coches y farolas
+local function count(pat)
+	return #nameMatches(pat)
+end
+check("plazas demarcadas: >= 32 lineas divisorias y 4 lineas frontales", count("^SlotLine$") >= 32 and count("^SlotFront$") == 4, count("^SlotLine$"))
+check("2 plazas accesibles pintadas de azul y senalizadas", count("^Access[LR]$") == 2 and count("^AccessSign[LR]_Plate$") == 2)
+check("coches aparcados (>= 12), cada uno con 4 ruedas y luces", count("^Car%d+_Body$") >= 12 and count("^Car%d+_Wheel$") == 4 * count("^Car%d+_Body$") and count("^Car%d+_Headlight$") == 2 * count("^Car%d+_Body$"))
+local carOverlap
+for _, a in colliders do
+	if string.find(a.name, "^Car%d+_Body$") or string.find(a.name, "^Car%d+_Cabin$") then
+		for _, b in colliders do
+			if a ~= b and b.y2 > 0.1 and not (string.match(a.name, "^(Car%d+)_") == string.match(b.name, "^(Car%d+)_")) then
+				if math.min(a.x2, b.x2) - math.max(a.x1, b.x1) > 0.2 and math.min(a.y2, b.y2) - math.max(a.y1, b.y1) > 0.2 and math.min(a.z2, b.z2) - math.max(a.z1, b.z1) > 0.2 then
+					carOverlap = carOverlap or (a.name .. " x " .. b.name)
+				end
+			end
+		end
+	end
+end
+check("los coches no se solapan con nada (ni entre si, ni con farolas o senales)", carOverlap == nil, carOverlap)
+local carInAccess
+for _, d in nameMatches("^Car%d+_Body$") do
+	local x, z = d.CFrame.px, d.CFrame.pz
+	if z < 112 and math.abs(x) < 13 then
+		carInAccess = carInAccess or d.Name
+	end
+end
+check("las plazas accesibles estan libres de coches", carInAccess == nil, carInAccess)
+local lampLights = 0
+for _, d in club:GetDescendants() do
+	if d:IsA("PointLight") and string.find(d.Parent.Name, "Lamp_Head$") then
+		lampLights += 1
+		if d.Range > 60 then
+			lampLights -= 100
+		end
+	end
+end
+check("farolas con luz real (>= 25) en calles, aceras y parqueadero", lampLights >= 25, lampLights)
+local texts = {}
+for _, d in club:GetDescendants() do
+	if d:IsA("TextLabel") then
+		texts[d.Text] = true
+	end
+end
+local missingText
+for _, t in { "ENTRADA", "SALIDA", "PARE", "PEATONES", "PARQUEADERO v", "AURA CLUB ^", "ACCESIBLE", "AV. AURA" } do
+	if not texts[t] then
+		missingText = missingText or t
+	end
+end
+check("senalizacion: entrada, salida, pare, peatones, direccional, accesible y calles", missingText == nil, missingText)
+check("calles: 5 pasos elevados, bordillos (>= 18), lineas de detencion (8), eje discontinuo (>= 50)", count("^Crosswalk%a*_Slab$") + count("^LotCross_Slab$") == 5 and count("^Curb") >= 18 and count("^StopLine_") == 8 and count("^Dash_") >= 50)
+check("aceras interiores y exteriores (>= 10 tramos)", count("^SidewalkIn_") + count("^SidewalkOut_") >= 10)
+check("perimetro: 4 muros, >= 36 pilares con neon y 4 barreras invisibles", count("^PerimeterWall_") == 4 and count("^Pillar[NSWE]$") >= 36 and count("^Boundary_") == 4)
+-- iluminacion del recorrido exterior: >= 90 % de la ruta peatonal tiene una luz cerca
+local rTot, rLit = 0, 0
+for _, r in { { -3, 51, 3, 65 }, { -3, 87, 3, 97 }, { -3, 99, 3, 149 } } do
+	for i = ci(r[1]), ci(r[3]) do
+		for j = cj(r[2]), cj(r[4]) do
+			for _, h in nodes[i][j] do
+				if math.abs(h) < 0.06 and flat[key(i, j, h)] then
+					rTot += 1
+					if lit(OX + (i + 0.5) * CELL, h + 3, OZ + (j + 0.5) * CELL) then
+						rLit += 1
+					end
+				end
+			end
+		end
+	end
+end
+check(string.format("iluminacion de la ruta exterior: %d/%d celdas (%.0f%%)", rLit, rTot, 100 * rLit / math.max(1, rTot)), rTot > 0 and rLit / rTot >= 0.9)
 
 -- idempotencia: relanzar no duplica (se prueba aparte en run.sh)
 print(string.format("\nRESULTADO: %d fallo(s)", failures))

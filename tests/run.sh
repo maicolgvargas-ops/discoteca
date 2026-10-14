@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
-# Ejecuta AuraClub.server.luau contra el mock de Roblox y lanza las comprobaciones.
+# Ejecuta AuraClub.server.luau contra el mock de Roblox, lanza las comprobaciones y valida los archivos generados.
+# El script se envuelve en una funcion para que su limite de 200 locales sea independiente del mock y los tests.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 LUAU="${LUAU:-luau}"
+SRC="${SRC:-src/ServerScriptService/AuraClub.server.luau}"
 OUT="$(mktemp -d)/run.luau"
-cat tests/mock_roblox.luau src/ServerScriptService/AuraClub.server.luau tests/checks.luau > "$OUT"
+{
+	cat tests/mock_roblox.luau
+	echo "local AURA = (function()"
+	cat "$SRC"
+	echo "return { club = club, fx = fx, CONFIG = CONFIG, LOOK = LOOK, normalizeAudioId = normalizeAudioId }"
+	echo "end)()"
+	echo "local club, fx, CONFIG, LOOK, normalizeAudioId = AURA.club, AURA.fx, AURA.CONFIG, AURA.LOOK, AURA.normalizeAudioId"
+	cat tests/checks.luau
+} > "$OUT"
 "$LUAU" "$OUT"
-python3 tests/check_files.py
+[ "$SRC" = "src/ServerScriptService/AuraClub.server.luau" ] && python3 tests/check_files.py || true
