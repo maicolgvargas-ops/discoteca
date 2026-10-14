@@ -8,7 +8,11 @@ Discoteca de ambiente oscuro (neón, trusses, altavoces colgados, VIP cálido) c
 | **2** (y 24) | **VIP cálido** de cristal: 8 lounges con sofás naranja, almohadones y **cuerdas con postes dorados**, barra VIP, balcón sobre la pista, neón en el techo |
 | **3** (y 48) | **Rooftop**: DJ con arco y cartel, barra, piscina de neón, fire pits, tumbonas, humo, macetas |
 
-Escaleras: P1→P2 al este, P2→P3 al oeste (24 peldaños de 1 stud). Spawn en el hall; la entrada está al sur (+Z).
+Escaleras: P1→P2 al este y P2→P3 al oeste, de **10 studs de ancho** (antes 8), 24 peldaños de 1 stud, con **descansos de 10×10** libres en la entrada y la llegada de cada tramo, pasamanos de neón y ≥ 8 studs de altura libre (antes ~7 y sin descansos). Los huecos de los pisos 2 y 3 miden 10×20. Spawn en el hall; la entrada está al sur (+Z).
+
+**Bar:** vasos de cristal (tumbler, highball, copa de cóctel y chupitos) con base gruesa, pared translúcida, borde, líquido de colores con brillo, hielo, pajillas y rodajas, sobre posavasos con aro de neón; bandejas de chupitos y un caldero con humo. Son decorativos y no colisionan, así que no bloquean la barra.
+
+**Halloween:** calabazas con cara y luz parpadeante (entrada, escenario, altavoces, pista —colgadas del truss—, barras y mesas), velas en las mesas del VIP y los booths, telarañas en las esquinas del techo, murciélagos (paredes, atrio y arco del rooftop), guirnaldas naranja/morado (entrada y barra) y detalles naranja en las puertas y los descansos. Todo es sin colisión y no invade pasos, escaleras ni la pista.
 
 ## Instalación (tu Place1 con Baseplate + SpawnLocation)
 
@@ -33,14 +37,14 @@ Elige **una**:
 3. Abre **View → Output**. Debe aparecer:
    ```
    [AuraClub] Sin musica: CONFIG.MusicId esta vacio (opcional). Pon un audio que puedas usar.
-   [AuraClub] listo: 1499 partes, 100 luces, 3 pisos.
+   [AuraClub] listo: 2231 partes, 116 luces, 3 pisos.
    ```
    No debe haber líneas rojas. Si las hay, copia el texto completo con su número de línea.
 4. Con **Play** el script borra el `Baseplate` y el `SpawnLocation` de la plantilla (los sustituye por el suelo y el spawn del club). Si quieres conservarlos, pon `RemoveTemplateObjects = false` en `CONFIG`.
 
 ## Si el interior se ve muy negro
 
-- **Comprueba la versión:** el Output debe decir `listo: 1499 partes, 100 luces`. Si dice `1495 partes` o `1472 partes`, estás ejecutando un archivo antiguo: descarga de nuevo.
+- **Comprueba la versión:** el Output debe decir `listo: 2231 partes, 116 luces`. Si dice `1495 partes` o `1472 partes`, estás ejecutando un archivo antiguo: descarga de nuevo.
 - **Qué pasaba:** los neones y las baldosas brillan pero **no iluminan**. Solo el 32 % de la pista, el 52 % del VIP y el 18 % del rooftop tenían una luz cerca, así que el interior se veía negro hasta que el motor terminaba de calcular la iluminación. Ahora hay una rejilla de luces de relleno por piso (9 por piso, tono morado/rosa, suave) y el ambiente base es más alto (`Ambient` 46,32,78). El test de cobertura exige ≥ 90 % de celdas caminables con luz; está al 100 % en los 3 pisos.
 - **Los primeros segundos:** en Voxel/Compatibility la luz se calcula de forma asíncrona y puede tardar unos segundos tras entrar. Con *Future* es inmediato.
 - **Más claro:** sube `Lighting.Ambient` o `ExposureCompensation` en `buildLighting`, o el brillo de `fillGrid` (último argumento). **Más oscuro:** al revés.
@@ -64,13 +68,14 @@ Colores: tabla `C` (colores fijos), `cycleColor` y `glowColors` (neones que cicl
 tests/run.sh        # requiere `luau` (https://github.com/luau-lang/luau/releases) y python3
 ```
 
-El script se ejecuta contra un **mock de la API de Roblox** (`tests/mock_roblox.luau`) que rechaza clases, propiedades y miembros de `Enum` inexistentes y valida **rangos** (rango de luces ≤ 60, `Angle` ≤ 180, `Transparency` 0–1, bloom, atmósfera…). Comprobaciones (61 en total, todas OK):
+El script se ejecuta contra un **mock de la API de Roblox** (`tests/mock_roblox.luau`) que rechaza clases, propiedades y miembros de `Enum` inexistentes y valida **rangos** (rango de luces ≤ 60, `Angle` ≤ 180, `Transparency` 0–1, bloom, atmósfera…). Comprobaciones (94 en total, todas OK):
 
+- **Escaleras:** ancho ≥ 10, descansos 10×10 libres de sólidos, altura libre ≥ 7 studs sobre cada peldano (mínimo medido 8.0), ≥ 8 celdas caminables a lo ancho, pasillos laterales de ≥ 4 studs y P1→P2→P3 conectados a pie. **Vasos:** bordes, paredes translúcidas, ≥ 5 colores de líquido, hielo, pajillas, posavasos, sin colisión y ≤ 4 studs sobre la barra. **Halloween:** calabazas, velas, telarañas, murciélagos, guirnaldas y calderos presentes y sin colisión; pista libre de sólidos.
 - Geometría válida (tamaños/posiciones finitos, todo `Anchored`), 3 pisos con sus huecos (atrio, escaleras, piscina), puerta libre.
 - Escaleras de 1 stud hasta el piso siguiente y **alcanzabilidad a pie** (BFS con cuerpo 2×2 desde el spawn hasta escenario, VIP, rooftop, barras y piscina).
 - **Ninguna pieza visible flota** sin apoyo (el test detecta los fallos de la versión anterior).
 - 90 s simulados de animación sin errores; lasers siempre dentro del atrio; estrobos **nacen apagados** y parpadean en ráfagas; la bola de espejos gira.
-- Presupuesto de red: ~1500 escrituras de propiedades/s (< 1700) y 100 luces (< 150).
+- Presupuesto de red: ~1560 escrituras de propiedades/s (< 1700) y 116 luces (< 150).
 - Relanzar el script no duplica nada: 1 modelo, 4 efectos de iluminación, 1 conexión activa.
 - **Cobertura de luz** ≥ 90 % de las celdas caminables por piso, ambiente base legible, y los archivos generados (`tests/check_files.py`): XML válido, Source idéntico al `.luau` y `Lighting.Technology = Future`.
 - `luau-compile` OK y `luau-analyze` sin avisos (salvo las globales propias de Roblox, que el analizador no conoce).

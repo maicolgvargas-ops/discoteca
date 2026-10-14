@@ -104,7 +104,7 @@ check("piso 1 solido (suelo en y=0)", hasTop(40, -40, 0) or hasTop(-30, 40, 0))
 check("piso 2 solido (suelo en y=24)", hasTop(0, 30, 24) and hasTop(-30, -40, 24))
 check("piso 3 solido (suelo en y=48)", hasTop(-20, 20, 48) and hasTop(30, 0, 48))
 check("atrio: sin losa del piso 2 sobre la pista", not hasTopBetween(0, -10, 20, 30))
-check("atrio: techo/azotea del piso 3 sobre la pista", hasTop(0, -10, 48))
+check("atrio: techo/azotea del piso 3 sobre la pista", hasTop(0.5, -11, 48))
 check("hueco escalera 1 en piso 2", not hasTop(44, 8, 24) and not hasTop(44, 0, 24))
 check("hueco escalera 2 en piso 3", not hasTop(-44, -8, 48) and not hasTop(-44, 0, 48))
 check("piscina: fondo a 47, sin losa a 48", hasTop(24, 33, 47) and not hasTop(24, 33, 48))
@@ -129,10 +129,10 @@ local function stairInfo(x, zStart, dir, baseY)
 	end
 	return okRise
 end
-check("escalera 1: 24 peldanos de 1 stud hasta y=24", stairInfo(44, 46, -1, 0))
-check("escalera 2: 24 peldanos de 1 stud hasta y=48", stairInfo(-44, -46, 1, 24))
-check("salida escalera 1 conecta con el suelo del piso 2", hasTop(44, -3, 24))
-check("salida escalera 2 conecta con el suelo del piso 3", hasTop(-44, 3, 48))
+check("escalera 1: 24 peldanos de 1 stud hasta y=24", stairInfo(43, 38, -1, 0))
+check("escalera 2: 24 peldanos de 1 stud hasta y=48", stairInfo(-43, -38, 1, 24))
+check("salida escalera 1 conecta con el suelo del piso 2", hasTop(43, -12, 24))
+check("salida escalera 2 conecta con el suelo del piso 3", hasTop(-43, 12, 48))
 
 -- BFS de navegacion (jugador 2x2x5, escalon max 1.6) -------------------------
 local CELL, ORIGIN, N = 1, -53, 106
@@ -449,6 +449,188 @@ end
 local amb = Lighting.Ambient
 check("ambiente base legible (luminancia media >= 0.15)", (amb.R + amb.G + amb.B) / 3 >= 0.15, (amb.R + amb.G + amb.B) / 3)
 check("luces < 150 con el relleno", lights + 0 < 150 and #lightsList < 150, #lightsList)
+
+-- ================= ESCALERAS: ancho, descansos, altura libre, circulacion =================
+local stepRows = {}
+for _, d in club:GetDescendants() do
+	local sn, idx = string.match(d.Name, "^(Stairs%d)_Step(%d+)$")
+	if sn and d:IsA("BasePart") then
+		stepRows[sn] = stepRows[sn] or {}
+		stepRows[sn][tonumber(idx)] = d
+	end
+end
+for _, sn in { "Stairs1", "Stairs2" } do
+	local rows = stepRows[sn]
+	local minW, maxRise = 1e9, 0
+	for i = 0, 23 do
+		minW = math.min(minW, rows[i].Size.X)
+	end
+	check(sn .. ": 24 peldanos y ancho util >= 10 studs", #rows + 1 == 24 and minW >= 10, minW)
+end
+
+-- descansos 10x10 libres de solidos (nada entre el suelo y 6 studs de altura)
+local function rectClear(x1, z1, x2, z2, floorY)
+	local bad
+	for _, cl in colliders do
+		if cl.x1 < x2 - 0.05 and cl.x2 > x1 + 0.05 and cl.z1 < z2 - 0.05 and cl.z2 > z1 + 0.05 and cl.y2 > floorY + 0.3 and cl.y1 < floorY + 6 then
+			bad = bad or cl.name
+		end
+	end
+	return bad == nil, bad
+end
+for _, l in {
+	{ "descanso de entrada escalera 1 (piso 1)", 38, 38, 48, 48, 0 },
+	{ "descanso de llegada escalera 1 (piso 2)", 38, -20, 48, -10, 24 },
+	{ "descanso de entrada escalera 2 (piso 2)", -48, -48, -38, -38, 24 },
+	{ "descanso de llegada escalera 2 (piso 3)", -48, 10, -38, 20, 48 },
+} do
+	local ok_, who = rectClear(l[2], l[3], l[4], l[5], l[6])
+	check(l[1] .. ": 10x10 libre de muebles", ok_, who)
+end
+
+-- altura libre sobre cada peldano (>= 7 studs: avatar de 5 + margen)
+local minClear, worstStep = 1e9, nil
+for _, sn in { "Stairs1", "Stairs2" } do
+	for i = 0, 23 do
+		local st = stepRows[sn][i]
+		local sx1, sx2 = st.CFrame.px - st.Size.X / 2 + 0.5, st.CFrame.px + st.Size.X / 2 - 0.5
+		local sz1, sz2 = st.CFrame.pz - st.Size.Z / 2 + 0.1, st.CFrame.pz + st.Size.Z / 2 - 0.1
+		local top = st.CFrame.py + st.Size.Y / 2
+		local lowest = 1e9
+		for _, cl in colliders do
+			if not string.find(cl.name, "_Step") and cl.x1 < sx2 and cl.x2 > sx1 and cl.z1 < sz2 and cl.z2 > sz1 and cl.y2 > top + 0.3 then
+				lowest = math.min(lowest, cl.y1)
+			end
+		end
+		local clearance = lowest - top
+		if clearance < minClear then
+			minClear, worstStep = clearance, sn .. "_Step" .. i
+		end
+	end
+end
+print(string.format("        altura libre minima sobre peldanos = %.1f studs (%s)", minClear, tostring(worstStep)))
+check("altura libre >= 7 studs sobre todos los peldanos", minClear >= 7, minClear)
+
+-- circulacion: filas alcanzables a todo lo ancho de peldanos y descansos
+local function visitedRow(x1, x2, z, h)
+	local n = 0
+	local j = math.floor((z - ORIGIN) / CELL)
+	for i = math.floor((x1 - ORIGIN) / CELL), math.floor((x2 - ORIGIN) / CELL) do
+		for _, hh in nodes[i][j] do
+			if math.abs(hh - h) < 0.06 and visited[key(i, j, hh)] then
+				n += 1
+			end
+		end
+	end
+	return n
+end
+local minRow = 1e9
+for _, sn in { "Stairs1", "Stairs2" } do
+	for _, i in { 0, 6, 12, 18, 23 } do
+		local st = stepRows[sn][i]
+		local top = st.CFrame.py + st.Size.Y / 2
+		local n = visitedRow(st.CFrame.px - 5, st.CFrame.px + 5, st.CFrame.pz - 0.5, top)
+		minRow = math.min(minRow, n)
+	end
+end
+print("        celdas caminables a lo ancho (min en los peldanos muestreados) = " .. minRow)
+check("ancho caminable >= 8 celdas de 1 stud en los peldanos", minRow >= 8, minRow)
+check("descanso de entrada escalera 1 transitable", reachedIn(39, 39, 47, 47, 0) >= 50)
+check("descanso de llegada escalera 1 transitable", reachedIn(39, -19, 47, -11, 24) >= 50)
+check("descanso de entrada escalera 2 transitable", reachedIn(-47, -47, -39, -39, 24) >= 50)
+check("descanso de llegada escalera 2 transitable", reachedIn(-47, 11, -39, 19, 48) >= 50)
+check("los tres pisos conectados: P1 -> P2 -> P3 a pie", reachedIn(39, -19, 47, -11, 24) > 0 and reachedIn(-47, 11, -39, 19, 48) > 0)
+
+-- pasillos: junto a las escaleras queda un pasillo de >= 4 studs libre
+check("pasillo este del piso 2 (entre lounges y hueco)", reachedIn(34.5, -33, 37.5, 9, 24) >= 60)
+check("pasillo oeste del piso 2 (entre escalera y lounges)", reachedIn(-37.5, -35, -34.5, 3, 24) >= 40)
+check("pista de baile libre de solidos (nada sobre 0.3 studs)", (function()
+	for _, cl in colliders do
+		if cl.x1 < 24 and cl.x2 > -24 and cl.z1 < 14 and cl.z2 > -34 and cl.y2 > 0.3 and cl.y1 < 6 then
+			return false
+		end
+	end
+	return true
+end)())
+
+-- ================= VASOS DE CRISTAL =================
+local function nameMatches(pat)
+	local list = {}
+	for _, d in club:GetDescendants() do
+		if d:IsA("BasePart") and string.find(d.Name, pat) then
+			table.insert(list, d)
+		end
+	end
+	return list
+end
+local rims = nameMatches("Glass%d_Rim$")
+local shotRims = nameMatches("_Shot%d_Rim$")
+local walls = {}
+for _, d in nameMatches("Glass%d_Wall%d?$") do
+	table.insert(walls, d)
+end
+for _, d in nameMatches("_Shot%d_Wall$") do
+	table.insert(walls, d)
+end
+local liquids, colorsSeen, ncolors = {}, {}, 0
+for _, d in nameMatches("Glass%d_Liquid%d?$") do
+	table.insert(liquids, d)
+	local k = string.format("%.2f,%.2f,%.2f", d.Color.R, d.Color.G, d.Color.B)
+	if not colorsSeen[k] then
+		colorsSeen[k] = true
+		ncolors += 1
+	end
+end
+local okT = true
+for _, w in walls do
+	if w.Transparency < 0.6 or w.Transparency > 0.85 then
+		okT = false
+	end
+end
+print(string.format("        vasos: %d con borde, %d chupitos, %d paredes, %d liquidos, %d colores", #rims, #shotRims, #walls, #liquids, ncolors))
+check("vasos de cristal con borde en las 3 barras (>= 13)", #rims >= 13, #rims)
+check("vasos con base, pared translucida (0.6-0.85) y liquido", #walls >= 13 and okT and #liquids >= 13)
+check("liquidos de al menos 5 colores distintos", ncolors >= 5, ncolors)
+check("hielo en los vasos (>= 10 cubos)", #nameMatches("_Ice%d$") >= 10)
+check("pajillas en los vasos (>= 5)", #nameMatches("_Straw$") >= 5)
+check("posavasos con aro de neon (>= 13)", #nameMatches("_Coaster$") >= 13)
+check("bandejas con 9 chupitos", #shotRims == 9, #shotRims)
+local blocking
+local maxTop = 0
+for _, d in club:GetDescendants() do
+	if d:IsA("BasePart") and (string.find(d.Name, "^BarGlass") or string.find(d.Name, "^VipGlass") or string.find(d.Name, "^RoofGlass") or string.find(d.Name, "Shots_") or string.find(d.Name, "^BarShots") or string.find(d.Name, "^VipShots") or string.find(d.Name, "^RoofShots")) then
+		if d.CanCollide ~= false then
+			blocking = blocking or d.Name
+		end
+		maxTop = math.max(maxTop, d.CFrame.py + d.Size.Y / 2 - ((d.CFrame.py > 40 and 52.5) or (d.CFrame.py > 20 and 28.5) or 4.5))
+	end
+end
+check("la cristaleria no colisiona (no bloquea la barra)", blocking == nil, blocking)
+check("vasos bajos: altura maxima sobre la barra <= 4 studs", maxTop <= 4, maxTop)
+
+-- ================= HALLOWEEN =================
+local pumpkins = nameMatches("Pumpkin%d?_Body$")
+check("calabazas con cara (>= 20)", #pumpkins >= 20 and #nameMatches("Pumpkin%d?_EyeL$") == #pumpkins, #pumpkins)
+check("velas con llama (>= 12 racimos)", #nameMatches("Candle%d?_Candle1$") >= 12, #nameMatches("Candle%d?_Candle1$"))
+check("telaranas (>= 7)", #nameMatches("Web%u?%d?_R0$") >= 7, #nameMatches("Web%u?%d?_R0$"))
+check("murcielagos (>= 14)", #nameMatches("Bat%d+_Body$") >= 14, #nameMatches("Bat%d+_Body$"))
+check("guirnaldas naranja/morado (>= 2) y calderos (>= 2)", #nameMatches("Garland_Bulb0$") >= 2 and #nameMatches("Cauldron_Pot$") >= 2)
+check("luces de llama/calabaza/caldero con parpadeo (>= 15)", #fx.flames >= 15, #fx.flames)
+local solidDecor
+for _, d in club:GetDescendants() do
+	if d:IsA("BasePart") and d.CanCollide ~= false and string.find(d.Name, "Pumpkin") then
+		solidDecor = solidDecor or d.Name
+	end
+end
+check("la decoracion de Halloween no colisiona (no obstruye)", solidDecor == nil and (function()
+	for _, d in club:GetDescendants() do
+		if d:IsA("BasePart") and d.CanCollide ~= false and (string.find(d.Name, "Candle") or string.find(d.Name, "Web") or string.find(d.Name, "Bat%d") or string.find(d.Name, "Garland") or string.find(d.Name, "Cauldron")) then
+			return false
+		end
+	end
+	return true
+end)(), solidDecor)
+check("partes totales razonables (< 3500)", #parts < 3500, #parts)
 
 -- idempotencia: relanzar no duplica (se prueba aparte en run.sh)
 print(string.format("\nRESULTADO: %d fallo(s)", failures))

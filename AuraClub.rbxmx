@@ -78,6 +78,12 @@ local C = {
 	fire = Color3.fromRGB(255, 140, 40),
 	sofaWarm = Color3.fromRGB(176, 78, 34),
 	warmWhite = Color3.fromRGB(255, 214, 170),
+	orange = Color3.fromRGB(255, 120, 20),
+	pumpkin = Color3.fromRGB(240, 105, 15),
+	stem = Color3.fromRGB(90, 110, 40),
+	flame = Color3.fromRGB(255, 196, 60),
+	candle = Color3.fromRGB(238, 222, 188),
+	web = Color3.fromRGB(225, 225, 240),
 }
 local M = Enum.Material
 local DECOR = { CanCollide = false, CastShadow = false }
@@ -120,6 +126,7 @@ local fx = {
 	screens = {}, -- pantalla LED del DJ
 	mirror = {}, -- facetas de la bola de espejos
 	lamps = {}, -- luces de relleno (cobertura de luz real)
+	flames = {}, -- luces de velas/calabazas con parpadeo
 }
 local lightCount = 0
 
@@ -127,7 +134,7 @@ local lightCount = 0
 -- Helpers de construccion
 ------------------------------------------------------------------------
 local function P(parent, name, cf, size, color, material, extra)
-	local p = Instance.new("Part")
+	local p = Instance.new((extra and extra.Wedge) and "WedgePart" or "Part")
 	p.Name = name
 	p.Anchored = true
 	p.Size = size
@@ -138,7 +145,9 @@ local function P(parent, name, cf, size, color, material, extra)
 	p.BottomSurface = Enum.SurfaceType.Smooth
 	if extra then
 		for k, v in extra do
-			p[k] = v
+			if k ~= "Wedge" then
+				p[k] = v
+			end
 		end
 	end
 	p.Parent = parent
@@ -500,7 +509,9 @@ end
 -- barra cilindrica entre dos puntos
 local function seg(parent, name, a, b, thick, color, material, extra)
 	local len = (b - a).Magnitude
-	return P(parent, name, CFrame.lookAt((a + b) * 0.5, b), Vector3.new(thick, thick, len), color, material, extra or DECOR)
+	-- en segmentos casi verticales lookAt degenera con el "arriba" por defecto: usa otro eje
+	local up = (math.abs(b.Y - a.Y) > 0.99 * len) and Vector3.new(0, 0, 1) or Vector3.new(0, 1, 0)
+	return P(parent, name, CFrame.lookAt((a + b) * 0.5, b, up), Vector3.new(thick, thick, len), color, material, extra or DECOR)
 end
 
 -- truss reticulado 1.2x1.2 (4 cordones + zigzag en las dos caras). y = centro
@@ -617,6 +628,271 @@ local function slats(parent, name, axis, fixed, from, to, y1, y2, depthDir)
 end
 
 ------------------------------------------------------------------------
+-- Escaleras: descansos y pasamanos
+------------------------------------------------------------------------
+-- descanso: losa decorativa a ras del suelo con borde de neon naranja (sin colision)
+local function landing(parent, name, x1, z1, x2, z2, y)
+	B(parent, name .. "_Pad", x1, y, z1, x2, y + 0.06, z2, Color3.fromRGB(58, 36, 80), M.Marble, { CanCollide = false, CastShadow = false, Reflectance = 0.2 })
+	glow(parent, name .. "_EdgeN", x1, y, z1, x2, y + 0.09, z1 + 0.15, C.orange)
+	glow(parent, name .. "_EdgeS", x1, y, z2 - 0.15, x2, y + 0.09, z2, C.orange)
+	glow(parent, name .. "_EdgeW", x1, y, z1, x1 + 0.15, y + 0.09, z2, C.orange)
+	glow(parent, name .. "_EdgeE", x2 - 0.15, y, z1, x2, y + 0.09, z2, C.orange)
+end
+
+-- pasamanos de neon sobre postes que apoyan en los peldanos (sin colision)
+local function stairRail(parent, name, xs, baseY, zStart, dir)
+	local prev
+	for _, i in { 0, 5, 10, 15, 20 } do
+		local zc = zStart + dir * (2 * i + 1)
+		local top = baseY + i + 1
+		B(parent, name .. "_Post" .. i, xs - 0.1, top, zc - 0.1, xs + 0.1, top + 3, zc + 0.1, C.dark, M.Metal, DECOR)
+		local tip = Vector3.new(xs, top + 3, zc)
+		if prev then
+			seg(parent, name .. "_Rail" .. i, prev, tip, 0.16, C.purple, M.Neon)
+		end
+		prev = tip
+	end
+end
+
+------------------------------------------------------------------------
+-- Cristaleria del bar: vasos de cristal con base, borde, liquido, hielo y pajilla
+------------------------------------------------------------------------
+local LIQUIDS = {
+	orange = Color3.fromRGB(255, 130, 30), -- calabaza
+	purple = Color3.fromRGB(150, 60, 255), -- pocion
+	green = Color3.fromRGB(110, 235, 70), -- slime
+	pink = Color3.fromRGB(255, 60, 150), -- sangre rosa
+	cyan = Color3.fromRGB(0, 220, 255), -- hielo azul
+}
+local GLASS_TINT = Color3.fromRGB(205, 232, 255)
+local ICE_COLOR = Color3.fromRGB(225, 245, 255)
+local GLASS_KINDS = {
+	tumbler = { d = 1.7, h = 1.7, fill = 0.62, ice = 2 },
+	highball = { d = 1.3, h = 2.8, fill = 0.7, ice = 2 },
+	shot = { d = 0.8, h = 1.0, fill = 0.75, ice = 0 },
+}
+local ICE_OFFSETS = { { -0.25, 0.12, 0.15 }, { 0.3, 0.02, -0.1 } }
+
+local function lighten(c, a)
+	return Color3.new(c.R + (1 - c.R) * a, c.G + (1 - c.G) * a, c.B + (1 - c.B) * a)
+end
+
+local function glassProps(transparency, reflectance)
+	return { CanCollide = false, CastShadow = false, Transparency = transparency, Reflectance = reflectance }
+end
+
+-- copa de coctel: base, tallo y copa escalonada en 3 niveles con liquido y borde
+local function martini(parent, name, x, y, z, liquid)
+	cyl(parent, name .. "_Base", x, y + 0.05, z, 0.1, 1.5, GLASS_TINT, M.Glass, glassProps(0.35, 0.2))
+	cyl(parent, name .. "_Stem", x, y + 0.7, z, 1.2, 0.16, GLASS_TINT, M.Glass, glassProps(0.45, 0.2))
+	local tiers = { { 1.3, 0.7 }, { 1.6, 1.2 }, { 1.9, 1.7 } } -- {altura de inicio, diametro}
+	for i, t in tiers do
+		cyl(parent, name .. "_Wall" .. i, x, y + t[1] + 0.15, z, 0.3, t[2], GLASS_TINT, M.Glass, glassProps(0.72, 0.1))
+	end
+	cyl(parent, name .. "_Liquid1", x, y + 1.45, z, 0.3, 0.52, liquid, M.SmoothPlastic, glassProps(0.15, 0.1))
+	cyl(parent, name .. "_Liquid2", x, y + 1.75, z, 0.3, 1.0, liquid, M.SmoothPlastic, glassProps(0.15, 0.1))
+	cyl(parent, name .. "_Liquid3", x, y + 1.975, z, 0.15, 1.45, liquid, M.SmoothPlastic, glassProps(0.15, 0.1))
+	cyl(parent, name .. "_LiquidTop", x, y + 2.065, z, 0.05, 1.45, lighten(liquid, 0.4), M.Neon, glassProps(0.45, 0))
+	cyl(parent, name .. "_Rim", x, y + 2.225, z, 0.05, 1.8, C.white, M.Glass, glassProps(0.4, 0.3))
+end
+
+-- y = superficie donde apoya (la barra). opts: coaster, glow, straw (Color3), garnish
+local function glassware(parent, name, x, y, z, kind, liquid, opts)
+	opts = opts or {}
+	if opts.coaster then
+		cyl(parent, name .. "_Coaster", x, y + 0.04, z, 0.08, 2.3, C.black, M.Marble, DECOR)
+		cyl(parent, name .. "_CoasterGlow", x, y + 0.025, z, 0.05, 2.5, opts.glow or C.orange, M.Neon, DECOR)
+		y += 0.08
+	end
+	if kind == "martini" then
+		martini(parent, name, x, y, z, liquid)
+		return
+	end
+	local k = GLASS_KINDS[kind]
+	local d, h, baseH = k.d, k.h, 0.22
+	local lh = (h - baseH) * k.fill
+	cyl(parent, name .. "_Base", x, y + baseH / 2, z, baseH, d, GLASS_TINT, M.Glass, glassProps(0.35, 0.2))
+	cyl(parent, name .. "_Wall", x, y + baseH + (h - baseH) / 2, z, h - baseH, d, GLASS_TINT, M.Glass, glassProps(0.78, 0.1))
+	cyl(parent, name .. "_Liquid", x, y + baseH + lh / 2, z, lh, d - 0.24, liquid, M.SmoothPlastic, glassProps(0.15, 0.1))
+	cyl(parent, name .. "_LiquidTop", x, y + baseH + lh + 0.02, z, 0.05, d - 0.24, lighten(liquid, 0.4), M.Neon, glassProps(0.45, 0))
+	cyl(parent, name .. "_Rim", x, y + h + 0.025, z, 0.05, d + 0.1, C.white, M.Glass, glassProps(0.4, 0.3))
+	local s = d / 1.7
+	for n = 1, k.ice do
+		local o = ICE_OFFSETS[n]
+		P(
+			parent,
+			name .. "_Ice" .. n,
+			CFrame.new(x + o[1] * s, y + baseH + lh - 0.08 + o[2], z + o[3] * s) * CFrame.Angles(0.4 * n, 0.7 * n, 0.2 * n),
+			Vector3.new(0.4, 0.4, 0.4),
+			ICE_COLOR,
+			M.Glass,
+			glassProps(0.3, 0.3)
+		)
+	end
+	if opts.straw then
+		seg(
+			parent,
+			name .. "_Straw",
+			Vector3.new(x + 0.2 * s, y + baseH + 0.15, z + 0.1 * s),
+			Vector3.new(x + 0.5 * s, y + h + 1.1, z - 0.1 * s),
+			0.1,
+			opts.straw,
+			M.SmoothPlastic
+		)
+	end
+	if opts.garnish then
+		cylZ(parent, name .. "_Slice", x + d / 2, y + h - 0.15, z, 0.07, 0.95, C.orange, M.Neon, DECOR)
+	end
+end
+
+-- bandeja con 3 chupitos de colores. alongZ = true si la barra corre a lo largo de Z
+local function shotTray(parent, name, x, y, z, alongZ)
+	local size = alongZ and Vector3.new(1.5, 0.12, 3.8) or Vector3.new(3.8, 0.12, 1.5)
+	P(parent, name .. "_Tray", CFrame.new(x, y + 0.06, z), size, C.black, M.Metal, DECOR)
+	P(parent, name .. "_TrayGlow", CFrame.new(x, y + 0.02, z), size + Vector3.new(0.2, 0, 0.2), C.orange, M.Neon, DECOR)
+	local cols = { LIQUIDS.orange, LIQUIDS.purple, LIQUIDS.green }
+	for i = 1, 3 do
+		local o = (i - 2) * 1.2
+		local sx, sz = x, z
+		if alongZ then
+			sz = z + o
+		else
+			sx = x + o
+		end
+		glassware(parent, name .. "_Shot" .. i, sx, y + 0.12, sz, "shot", cols[i])
+	end
+end
+
+------------------------------------------------------------------------
+-- Halloween
+------------------------------------------------------------------------
+local FLICKER = { 0.8, 1.0, 1.25 }
+
+local function flameLight(part, color, range, brightness)
+	local l = addLight(part, color, range, false, brightness)
+	table.insert(fx.flames, { light = l, base = brightness, phase = #fx.flames * 1.3 })
+	return l
+end
+
+local function pball(parent, name, cf, d, color, material, extra)
+	return P(parent, name, cf, Vector3.new(d, d, d), color, material, withShape(Enum.PartType.Ball, extra))
+end
+
+-- calabaza con cara iluminada. y = apoyo, ry = giro (el frente es -Z local). s = escala
+-- opts: mini (sin lobulos), light (luz interior parpadeante)
+local function pumpkin(parent, name, x, y, z, ry, s, opts)
+	opts = opts or {}
+	local cf = CFrame.new(x, y + 1.0 * s, z) * CFrame.Angles(0, ry, 0)
+	local body = pball(parent, name .. "_Body", cf, 2.2 * s, C.pumpkin, M.SmoothPlastic, DECOR)
+	if not opts.mini then
+		for sx = -1, 1, 2 do
+			pball(parent, name .. "_Lobe" .. sx, cf * CFrame.new(sx * 0.75 * s, -0.05 * s, 0.1 * s), 1.9 * s, C.pumpkin, M.SmoothPlastic, DECOR)
+		end
+	end
+	cyl(parent, name .. "_Stem", x, y + 2.3 * s, z, 0.5 * s, 0.4 * s, C.stem, M.Wood, DECOR)
+	-- cara: ojos triangulares y boca
+	local face = { CanCollide = false, CastShadow = false, Wedge = true }
+	P(parent, name .. "_EyeL", cf * CFrame.new(-0.5 * s, 0.3 * s, -0.93 * s), Vector3.new(0.45 * s, 0.45 * s, 0.14 * s), C.flame, M.Neon, face)
+	P(parent, name .. "_EyeR", cf * CFrame.new(0.5 * s, 0.3 * s, -0.93 * s) * CFrame.Angles(0, 0, math.rad(90)), Vector3.new(0.45 * s, 0.45 * s, 0.14 * s), C.flame, M.Neon, face)
+	P(parent, name .. "_Mouth", cf * CFrame.new(0, -0.4 * s, -1.0 * s), Vector3.new(1.1 * s, 0.2 * s, 0.14 * s), C.flame, M.Neon, DECOR)
+	if not opts.mini then
+		for sx = -1, 1, 2 do
+			P(parent, name .. "_Smile" .. sx, cf * CFrame.new(sx * 0.55 * s, -0.2 * s, -0.93 * s) * CFrame.Angles(0, 0, sx * math.rad(30)), Vector3.new(0.4 * s, 0.18 * s, 0.14 * s), C.flame, M.Neon, DECOR)
+		end
+	end
+	if opts.light then
+		flameLight(body, C.orange, opts.range or 16, 1.3)
+	end
+	return body
+end
+
+-- racimo de 3 velas con llama de neon. light = true anade una luz calida parpadeante
+local function candleCluster(parent, name, x, y, z, light)
+	cyl(parent, name .. "_Dish", x, y + 0.05, z, 0.1, 2.0, C.black, M.Metal, DECOR)
+	local spec = { { 0, 0, 1.0 }, { 0.55, 0.25, 0.65 }, { -0.45, 0.4, 1.3 } }
+	for i, c in spec do
+		cyl(parent, name .. "_Candle" .. i, x + c[1], y + c[3] / 2, z + c[2], c[3], 0.5, C.candle, M.SmoothPlastic, DECOR)
+		local flame = pball(parent, name .. "_Flame" .. i, CFrame.new(x + c[1], y + c[3] + 0.12, z + c[2]), 0.24, C.flame, M.Neon, DECOR)
+		if light and i == 1 then
+			flameLight(flame, C.fire, 14, 1.0)
+		end
+	end
+end
+
+-- telarana en un cuarto de abanico sobre la pared. a = a lo largo del techo, b = hacia abajo
+local WEB = { CanCollide = false, CastShadow = false, Transparency = 0.35 }
+local function cobweb(parent, name, corner, a, b, size)
+	local dirs = {}
+	for r = 0, 3 do
+		local ang = (r / 3) * math.pi / 2
+		dirs[r + 1] = a * math.cos(ang) + b * math.sin(ang)
+		seg(parent, name .. "_R" .. r, corner, corner + dirs[r + 1] * size, 0.06, C.web, M.SmoothPlastic, WEB)
+	end
+	for ring, f in { 0.45, 0.8 } do
+		for r = 1, 3 do
+			seg(parent, name .. "_C" .. ring .. r, corner + dirs[r] * (size * f), corner + dirs[r + 1] * (size * f), 0.05, C.web, M.SmoothPlastic, WEB)
+		end
+	end
+end
+
+-- murcielago: cuerpo, 4 tramos de ala y ojos. cf = pose (el frente es -Z; alas en el plano XY)
+local function bat(parent, name, cf)
+	local dark = Color3.fromRGB(16, 12, 22)
+	pball(parent, name .. "_Body", cf, 0.75, dark, M.SmoothPlastic, DECOR)
+	for s = -1, 1, 2 do
+		P(parent, name .. "_WingIn" .. s, cf * CFrame.new(s * 1.0, 0.1, 0) * CFrame.Angles(0, 0, s * 0.25), Vector3.new(1.5, 0.8, 0.08), dark, M.SmoothPlastic, DECOR)
+		P(parent, name .. "_WingOut" .. s, cf * CFrame.new(s * 2.1, 0.45, 0) * CFrame.Angles(0, 0, s * 0.6), Vector3.new(1.3, 0.6, 0.08), dark, M.SmoothPlastic, DECOR)
+		pball(parent, name .. "_Eye" .. s, cf * CFrame.new(s * 0.15, 0.1, -0.33), 0.1, C.orange, M.Neon, DECOR)
+	end
+end
+
+-- murcielago pegado a una pared. normal = hacia donde mira (saliendo de la pared)
+local function wallBat(parent, name, x, y, z, nx, nz)
+	local pos = Vector3.new(x, y, z)
+	bat(parent, name, CFrame.lookAt(pos, pos + Vector3.new(nx, 0, nz)))
+end
+
+-- murcielago colgado de un hilo desde el techo. face = hacia donde mira
+local function hangBat(parent, name, x, y, z, ceilY, fx_, fz)
+	B(parent, name .. "_Thread", x - 0.03, y + 0.3, z - 0.03, x + 0.03, ceilY, z + 0.03, C.black, M.SmoothPlastic, DECOR)
+	local pos = Vector3.new(x, y, z)
+	bat(parent, name, CFrame.lookAt(pos, pos + Vector3.new(fx_, 0, fz)))
+end
+
+-- guirnalda de bombillas naranja/morado. out = desplazamiento del centro (para despegarla de la pared)
+local function garland(parent, name, a, b, sag, n, out)
+	local prev
+	for i = 0, n do
+		local t = i / n
+		local w = 4 * t * (1 - t)
+		local p = a + (b - a) * t + Vector3.new(0, -sag * w, 0) + (out or Vector3.new(0, 0, 0)) * w
+		local col = (i % 2 == 0) and C.orange or C.purple
+		pball(parent, name .. "_Bulb" .. i, CFrame.new(p), 0.45, col, M.Neon, DECOR)
+		if prev then
+			seg(parent, name .. "_Wire" .. i, prev, p, 0.05, C.black, M.SmoothPlastic)
+		end
+		prev = p
+	end
+end
+
+-- caldero con liquido verde, burbujas y humo
+local function cauldron(parent, name, x, y, z)
+	cyl(parent, name .. "_Pot", x, y + 0.65, z, 1.3, 2.4, C.black, M.Metal, DECOR)
+	cyl(parent, name .. "_Lip", x, y + 1.25, z, 0.1, 2.6, C.black, M.Metal, DECOR)
+	local liquid = cyl(parent, name .. "_Liquid", x, y + 1.43, z, 0.06, 2.1, Color3.fromRGB(90, 255, 70), M.Neon, DECOR)
+	for i, b in { { -0.4, 0.2, 0.35 }, { 0.3, -0.3, 0.25 }, { 0.5, 0.4, 0.2 } } do
+		pball(parent, name .. "_Bubble" .. i, CFrame.new(x + b[1], y + 1.5 + b[3] / 2, z + b[2]), b[3], Color3.fromRGB(150, 255, 120), M.Neon, DECOR)
+	end
+	flameLight(liquid, Color3.fromRGB(90, 255, 70), 14, 1.1)
+	local sm = Instance.new("Smoke")
+	sm.Size = 2.5
+	sm.Opacity = 0.12
+	sm.RiseVelocity = 2
+	sm.Color = Color3.fromRGB(120, 255, 100)
+	sm.Parent = liquid
+end
+
+------------------------------------------------------------------------
 -- Exterior y estructura
 ------------------------------------------------------------------------
 local function buildShell()
@@ -678,10 +954,19 @@ local function buildShell()
 			end
 		end
 	end
-	for _, sx in { -12, 12 } do
+	for _, sx in { -16, 16 } do
 		B(e, "Planter", sx - 1.5, 0, 52, sx + 1.5, 2.5, 55, C.dark, M.Concrete)
 		ball(e, "PlanterLeaf", sx, 4.2, 53.5, 4, C.green, M.Grass)
 	end
+
+	-- Halloween en la entrada: calabazas, acentos naranja en la puerta y guirnalda
+	for i, sx in { -1, 1 } do
+		pumpkin(e, "EntrancePumpkin" .. i, sx * 9.2, 0, 51.45, math.pi, 1.3, { light = true, range = 18 })
+	end
+	glow(e, "DoorAccentL", -7, 0, 50.2, -6.85, 11, 50.5, C.orange)
+	glow(e, "DoorAccentR", 6.85, 0, 50.2, 7, 11, 50.5, C.orange)
+	glow(e, "DoorAccentT", -7, 10.85, 50.2, 7, 11, 50.5, C.orange)
+	garland(e, "DoorGarland", Vector3.new(-13, 11.4, 50.22), Vector3.new(13, 11.4, 50.22), 2, 16, Vector3.new(0, 0, 0.8))
 end
 
 ------------------------------------------------------------------------
@@ -821,8 +1106,11 @@ local function buildFloor1()
 		roundTable(f, "HighTableW" .. i, -28, 0, z, 1.6, true, C.cyan)
 	end
 
-	-- escalera P1 -> P2 (este): se sube hacia el norte
-	stairs(folders.Stairs, "Stairs1", 40, 48, FLOOR_Y[1], 46, -1)
+	-- escalera P1 -> P2 (este): 10 studs de ancho, se sube hacia el norte.
+	-- Descanso de entrada de 10x10 al sur (z 38..48); el hueco del piso 2 deja >= 7 studs libres.
+	stairs(folders.Stairs, "Stairs1", 38, 48, FLOOR_Y[1], 38, -1)
+	stairRail(folders.Stairs, "Stairs1Rail", 38.15, FLOOR_Y[1], 38, -1)
+	landing(f, "Landing1In", 38, 38, 48, 48, 0)
 
 	-- tiras de luz en el techo del hall
 	for i, x in { -14, 14 } do
@@ -836,10 +1124,58 @@ local function buildFloor1()
 			downlight(f, "Downlight", x, 21.9, z)
 		end
 	end
-	slats(f, "SlatE", "z", 47.5, -46, -5, 1, 21, 1)
+	slats(f, "SlatE", "z", 47.5, -46, -12, 1, 21, 1)
 	slats(f, "SlatNL", "x", -48, -46, -26, 1, 21, 1)
 	slats(f, "SlatNR", "x", -48, 26, 46, 1, 21, 1)
 	slats(f, "SlatW", "z", -48, -46, -28, 1, 21, 1)
+
+	-- Barra: vasos de cristal, bandeja de chupitos, caldero y calabaza (superficie y = 4.5)
+	local bx, by = -41.5, 4.5
+	pumpkin(f, "BarPumpkin", bx, by, -24.8, -math.pi / 2, 0.7, { mini = true })
+	glassware(f, "BarGlass1", bx, by, -21, "highball", LIQUIDS.orange, { coaster = true, glow = C.orange, straw = C.white, garnish = true })
+	glassware(f, "BarGlass2", bx, by, -16.5, "martini", LIQUIDS.green, { coaster = true, glow = C.purple })
+	glassware(f, "BarGlass3", bx, by, -12, "tumbler", LIQUIDS.purple, { coaster = true, glow = C.purple })
+	glassware(f, "BarGlass4", bx, by, -7.5, "highball", LIQUIDS.pink, { coaster = true, glow = C.orange, straw = C.orange })
+	glassware(f, "BarGlass5", bx, by, -3.5, "tumbler", LIQUIDS.cyan, { coaster = true, glow = C.orange, garnish = true })
+	shotTray(f, "BarShots", bx, by, 0.8, true)
+	cauldron(f, "BarCauldron", bx, by, 4.9)
+	garland(f, "BarGarland", Vector3.new(-47.78, 20.6, -26), Vector3.new(-47.78, 20.6, 8), 1.1, 14, Vector3.new(0.55, 0, 0))
+
+	-- Halloween en el hall y la pista (nada sobre la pista ni en los pasos)
+	for i, z in { 18, 30, 42 } do
+		pumpkin(f, "TablePumpkin" .. i, 31, 4.5, z, math.pi / 2, 0.5, { mini = true })
+	end
+	for i, z in { 22, 34 } do
+		candleCluster(f, "TableCandle" .. i, -28, 4.5, z, false)
+	end
+	for i, z in { 18, 28, 38 } do
+		candleCluster(f, "BoothCandle" .. i, -41.5, 2.5, z, i == 2)
+	end
+	for i, sx in { -1, 1 } do
+		pumpkin(f, "StagePumpkin" .. i, sx * 16.5, 3, -38.6, math.pi, 0.9, { light = true, range = 18 })
+		pumpkin(f, "SpeakerPumpkin" .. i, sx * 22, 12, -43, math.pi, 0.8, { mini = true })
+	end
+	for _, side in { -1, 1 } do
+		for _, z in { -26, -14 } do
+			local x = side * 22
+			pumpkin(f, "HungPumpkin", x, 36, z, side * math.pi / 2, 1.0, { light = true, range = 16 })
+			B(f, "HungRod", x - 0.05, 38.5, z - 0.05, x + 0.05, 40.7, z + 0.05, C.dark, M.Metal, DECOR)
+		end
+	end
+	local wallBats = {
+		{ 47.1, 14, -18, -1, 0 }, { 47.1, 17.5, -26, -1, 0 }, { 47.1, 13, -34, -1, 0 },
+		{ -36, 15.5, -47.1, 0, 1 }, { -30, 18, -47.1, 0, 1 }, { 36, 16, -47.1, 0, 1 }, { 42, 13.5, -47.1, 0, 1 },
+		{ -47.1, 17, -32, 1, 0 }, { -47.1, 14, -40, 1, 0 },
+	}
+	for i, b in wallBats do
+		wallBat(f, "Bat" .. i, b[1], b[2], b[3], b[4], b[5])
+	end
+	hangBat(f, "AtriumBat1", -12, 42, -22, 46, 0, 1)
+	hangBat(f, "AtriumBat2", 12, 42.5, -6, 46, 0, 1)
+	hangBat(f, "AtriumBat3", 0, 43, 4, 46, 0, 1)
+	cobweb(f, "WebA", Vector3.new(-47.95, 21.95, 46), Vector3.new(0, 0, -1), Vector3.new(0, -1, 0), 6)
+	cobweb(f, "WebB", Vector3.new(47.95, 21.95, 46), Vector3.new(0, 0, -1), Vector3.new(0, -1, 0), 6)
+	cobweb(f, "WebC", Vector3.new(-47.95, 21.95, 8), Vector3.new(0, 0, -1), Vector3.new(0, -1, 0), 5)
 	fillGrid(f, "Fill1", 8, C.purple, 40, 0.9)
 	sign(f, "Floor1Label", 47.75, 16, 24, 10, 3, -1, 0, "LEVEL 1", C.cyan, true)
 end
@@ -850,12 +1186,15 @@ end
 local function buildFloor2()
 	local f = folders.Floor2
 	local y = FLOOR_Y[2]
-	slab(f, "Floor2_Slab", -50, -50, 50, 50, y, 2, { { -24, -34, 24, 14 }, { 40, -2, 48, 16 } }, Color3.fromRGB(34, 22, 44), M.Marble, { Reflectance = 0.12 })
+	slab(f, "Floor2_Slab", -50, -50, 50, 50, y, 2, { { -24, -34, 24, 14 }, { 38, -10, 48, 10 } }, Color3.fromRGB(34, 22, 44), M.Marble, { Reflectance = 0.12 })
 
 	-- barandillas del balcon sobre la pista y del hueco de la escalera
 	railLoop(f, "AtriumRail", -24, -34, 24, 14, y, C.cyan)
-	rail(f, "S1Rail_W", 40, -2, 40, 16, y, C.magenta)
-	rail(f, "S1Rail_S", 40, 16, 48, 16, y, C.magenta)
+	rail(f, "S1Rail_W", 38, -10, 38, 10, y, C.magenta)
+	rail(f, "S1Rail_S", 38, 10, 48, 10, y, C.magenta)
+	-- descansos de llegada (escalera 1) y de entrada (escalera 2), 10x10 libres de muebles
+	landing(f, "Landing1Out", 38, -20, 48, -10, y)
+	landing(f, "Landing2In", -48, -48, -38, -38, y)
 
 	-- barra VIP norte
 	B(f, "VIPBackBar", -16, y, -48, 16, y + 6, -46, C.dark, M.Concrete)
@@ -874,8 +1213,10 @@ local function buildFloor2()
 	sign(f, "VIPSign", 0, y + 14, -47.75, 22, 6, 0, 1, "V.I.P", C.gold, false)
 
 	-- lounges: mesa + 2 sofas enfrentados
+	-- Lounges compactos (cuerdas a +-4 en X): dejan pasillos de >= 4.5 studs junto a las
+	-- escaleras y los huecos (antes quedaban ~2), y los descansos de 10x10 libres.
 	local lounges = {
-		{ 32, -24 }, { 32, -10 }, { -32, -24 }, { -32, -8 }, { -32, 8 },
+		{ 29.5, -26 }, { 29.5, -9 }, { -29.5, -22 }, { -29.5, -4 },
 		{ -30, 30 }, { 0, 30 }, { 30, 30 },
 	}
 	for i, p in lounges do
@@ -888,9 +1229,10 @@ local function buildFloor2()
 			P(f, "PillowB" .. i, CFrame.new(x + px, y + 2.9, z + 5.7) * CFrame.Angles(0, math.rad(-px * 8), 0), Vector3.new(1.4, 1.4, 0.5), C.velvet, M.Fabric, DECOR)
 		end
 		-- cuerdas de terciopelo en 3 lados (el sur queda abierto)
-		ropeLine(f, "RopeW" .. i, x - 7.5, z - 7.5, x - 7.5, z + 7.5, y)
-		ropeLine(f, "RopeE" .. i, x + 7.5, z - 7.5, x + 7.5, z + 7.5, y)
-		ropeLine(f, "RopeN" .. i, x - 7.5, z - 7.5, x + 7.5, z - 7.5, y, true, true)
+		ropeLine(f, "RopeW" .. i, x - 4, z - 7.5, x - 4, z + 7.5, y)
+		ropeLine(f, "RopeE" .. i, x + 4, z - 7.5, x + 4, z + 7.5, y)
+		ropeLine(f, "RopeN" .. i, x - 4, z - 7.5, x + 4, z - 7.5, y, true, true)
+		candleCluster(f, "LoungeCandle" .. i, x, y + 2.5, z, i <= 4)
 		glow(f, "Chandelier" .. i, x - 3, y + 17, z - 3, x + 3, y + 17.3, z + 3, C.warmWhite, { light = 26, brightness = 1.4 })
 		B(f, "ChandelierRod" .. i, x - 0.1, y + 17.3, z - 0.1, x + 0.1, y + FLOOR_H, z + 0.1, C.dark, M.Metal, DECOR)
 	end
@@ -898,6 +1240,27 @@ local function buildFloor2()
 	-- tiras en el techo (parte baja de la losa del piso 3)
 	for i, z in { -30, 22, 38 } do
 		glow(f, "CeilStrip" .. i, -46, y + 21.6, z, 46, y + 22, z + 0.6, C.purple, { cycle = true, phase = i })
+	end
+
+	-- Barra VIP: vasos de cristal, bandeja de chupitos y calabazas (superficie y = 28.5)
+	local vy, vz = y + 4.5, -42.5
+	for i, sx in { -1, 1 } do
+		pumpkin(f, "VipPumpkin" .. i, sx * 13.2, vy, vz, math.pi, 0.6, { mini = true })
+	end
+	glassware(f, "VipGlass1", -10, vy, vz, "martini", LIQUIDS.orange, { coaster = true, glow = C.orange })
+	glassware(f, "VipGlass2", -6.8, vy, vz, "highball", LIQUIDS.purple, { coaster = true, glow = C.purple, straw = C.white })
+	glassware(f, "VipGlass3", -3.6, vy, vz, "tumbler", LIQUIDS.green, { coaster = true, glow = C.orange, garnish = true })
+	glassware(f, "VipGlass4", 3.6, vy, vz, "tumbler", LIQUIDS.cyan, { coaster = true, glow = C.purple })
+	glassware(f, "VipGlass5", 6.8, vy, vz, "martini", LIQUIDS.pink, { coaster = true, glow = C.orange })
+	glassware(f, "VipGlass6", 10, vy, vz, "highball", LIQUIDS.orange, { coaster = true, glow = C.orange, straw = C.orange })
+	shotTray(f, "VipShots", 0, vy, vz, false)
+
+	-- Halloween VIP: telaranas en las esquinas del techo y murcielagos en la pared norte
+	for i, c in { { -47.95, -46, 1 }, { 47.95, -46, 1 }, { -47.95, 46, -1 }, { 47.95, 46, -1 } } do
+		cobweb(f, "VipWeb" .. i, Vector3.new(c[1], y + 21.95, c[2]), Vector3.new(0, 0, c[3]), Vector3.new(0, -1, 0), 4.5)
+	end
+	for i, b in { { -26, 17 }, { 26, 17 }, { -34, 13 }, { 34, 13 } } do
+		wallBat(f, "VipBat" .. i, b[1], y + b[2], -47.6, 0, 1)
 	end
 	fillGrid(f, "Fill2", y + 8, C.magenta, 40, 0.8)
 	neonArt(f, "CeilArt2", -46, 17, 46, 47, y + 21.8, 11, 5, C.magenta)
@@ -908,8 +1271,10 @@ local function buildFloor2()
 	end
 	sign(f, "Floor2Label", 47.75, y + 16, -20, 10, 3, -1, 0, "LEVEL 2", C.gold, false)
 
-	-- escalera P2 -> P3 (oeste): se sube hacia el sur
-	stairs(folders.Stairs, "Stairs2", -48, -40, y, -46, 1)
+	-- escalera P2 -> P3 (oeste): 10 studs de ancho, se sube hacia el sur.
+	-- Descanso de entrada 10x10 al norte (z -48..-38).
+	stairs(folders.Stairs, "Stairs2", -48, -38, y, -38, 1)
+	stairRail(folders.Stairs, "Stairs2Rail", -38.15, y, -38, 1)
 end
 
 ------------------------------------------------------------------------
@@ -946,12 +1311,13 @@ local function buildFloor3()
 	local f = folders.Floor3
 	local y = FLOOR_Y[3]
 	local pool = { 14, 22, 34, 44 }
-	slab(f, "Floor3_Slab", -50, -50, 50, 50, y, 2, { { -48, -16, -40, 2 }, pool }, C.deck, M.WoodPlanks)
+	slab(f, "Floor3_Slab", -50, -50, 50, 50, y, 2, { { -48, -10, -38, 10 }, pool }, C.deck, M.WoodPlanks)
 
 	-- parapeto de cristal + barandillas del hueco de escalera
 	railLoop(f, "Parapet", -49.6, -49.6, 49.6, 49.6, y, C.magenta)
-	rail(f, "S2Rail_N", -48, -16, -40, -16, y, C.cyan)
-	rail(f, "S2Rail_E", -40, -16, -40, 2, y, C.cyan)
+	rail(f, "S2Rail_N", -48, -10, -38, -10, y, C.cyan)
+	rail(f, "S2Rail_E", -38, -10, -38, 10, y, C.cyan)
+	landing(f, "Landing2Out", -48, 10, -38, 20, y)
 
 	-- piscina poco profunda (fondo neon + agua sin colision)
 	B(f, "PoolFloor", pool[1], y - 2, pool[2], pool[3], y - 1, pool[4], Color3.fromRGB(0, 120, 200), M.Neon)
@@ -1005,6 +1371,26 @@ local function buildFloor3()
 	firePit(f, "FirePit1", -26, y, -4)
 	firePit(f, "FirePit2", -26, y, 30)
 
+
+	-- Barra del rooftop: vasos de cristal, caldero y chupitos (superficie y = 52.5)
+	local ry_, rx = y + 4.5, 29
+	cauldron(f, "RoofCauldron", rx, ry_, -28.3)
+	glassware(f, "RoofGlass1", rx, ry_, -24, "highball", LIQUIDS.cyan, { coaster = true, glow = C.cyan, straw = C.white })
+	glassware(f, "RoofGlass2", rx, ry_, -19.5, "martini", LIQUIDS.pink, { coaster = true, glow = C.purple })
+	glassware(f, "RoofGlass3", rx, ry_, -15, "tumbler", LIQUIDS.orange, { coaster = true, glow = C.orange, garnish = true })
+	glassware(f, "RoofGlass4", rx, ry_, -10.5, "highball", LIQUIDS.green, { coaster = true, glow = C.orange, straw = C.orange })
+	shotTray(f, "RoofShots", rx, ry_, -6.2, true)
+	for i, z in { -26, -8 } do
+		pumpkin(f, "RackPumpkin" .. i, 35, y + 10, z, math.pi / 2, 0.7, { mini = true })
+	end
+
+	-- Halloween rooftop: calabazas en el escenario y murcielagos colgados del arco
+	for i, sx in { -1, 1 } do
+		pumpkin(f, "RoofStagePumpkin" .. i, sx * 12.5, y + 2, -38.4, math.pi, 0.9, { light = true, range = 18 })
+	end
+	for i, x in { -11.8, -4.5, 4.5, 11.8 } do
+		hangBat(f, "ArchBat" .. i, x, y + 12, -46.5, y + 14, 0, 1)
+	end
 	fillGrid(f, "Fill3", y + 7, Color3.fromRGB(120, 110, 255), 40, 0.8)
 
 	-- macetas
@@ -1189,6 +1575,13 @@ local function startAnimations()
 					if g.light then
 						g.light.Color = c
 					end
+				end
+			end
+			for _, fl in fx.flames do
+				local q = (math.floor(t * 6 + fl.phase) % 3) + 1
+				if q ~= fl.q then
+					fl.q = q
+					fl.light.Brightness = fl.base * FLICKER[q]
 				end
 			end
 			for _, l in fx.lamps do

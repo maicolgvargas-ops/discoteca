@@ -126,16 +126,17 @@ function CFrame.Angles(rx, ry, rz)
 	local Rz = { cz, -sz, 0, sz, cz, 0, 0, 0, 1 }
 	return makeCF(0, 0, 0, mat3mul(mat3mul(Rx, Ry), Rz))
 end
-function CFrame.lookAt(at, target)
+function CFrame.lookAt(at, target, up)
+	up = up or Vector3.new(0, 1, 0)
 	local back = at - target
 	local len = back.Magnitude
 	assert(len > 0, "lookAt: mismo punto")
 	local zx, zy, zz = back.X / len, back.Y / len, back.Z / len
-	-- x = up(0,1,0) x z
-	local xx, xy, xz = zz, 0, -zx
-	local xl = math.sqrt(xx * xx + xz * xz)
+	-- x = up x z
+	local xx, xy, xz = up.Y * zz - up.Z * zy, up.Z * zx - up.X * zz, up.X * zy - up.Y * zx
+	local xl = math.sqrt(xx * xx + xy * xy + xz * xz)
 	assert(xl > 1e-6, "lookAt: paralelo a up")
-	xx, xz = xx / xl, xz / xl
+	xx, xy, xz = xx / xl, xy / xl, xz / xl
 	-- y = z x x
 	local yx, yy, yz = zy * xz - zz * xy, zz * xx - zx * xz, zx * xy - zy * xx
 	return makeCF(at.X, at.Y, at.Z, { xx, yx, zx, xy, yy, zy, xz, yz, zz })
@@ -181,6 +182,7 @@ end
 local LIGHT = { "Name", "Parent", "Color", "Range", "Brightness", "Shadows", "Enabled" }
 local CLASSES = {
 	Part = { props = PART_PROPS, base = true },
+	WedgePart = { props = PART_PROPS, base = true },
 	SpawnLocation = { props = concat(PART_PROPS, { "Neutral", "Duration", "Enabled", "AllowTeamChangeOnTouch", "TeamColor" }), base = true },
 	Model = { props = { "Name", "Parent" } },
 	Folder = { props = { "Name", "Parent" } },
@@ -232,6 +234,7 @@ end
 -- rangos validos de propiedades numericas (los que Studio recorta o rechaza)
 local RANGES = {
 	Part = { Transparency = { 0, 1 }, Reflectance = { 0, 1 } },
+	WedgePart = { Transparency = { 0, 1 }, Reflectance = { 0, 1 } },
 	SpawnLocation = { Transparency = { 0, 1 }, Reflectance = { 0, 1 }, Duration = { 0, 1e6 } },
 	PointLight = { Range = { 0, 60 }, Brightness = { 0, 1e4 } },
 	SpotLight = { Range = { 0, 60 }, Brightness = { 0, 1e4 }, Angle = { 0, 180 } },
