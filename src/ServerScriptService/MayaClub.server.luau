@@ -1,11 +1,5 @@
-<?xml version="1.0" encoding="utf-8"?>
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
-	<Item class="Script" referent="RBX0">
-		<Properties>
-			<string name="Name">AuraClub</string>
-			<token name="RunContext">0</token>
-			<ProtectedString name="Source"><![CDATA[--[[
-	AURA CLUB - discoteca de 3 pisos generada 100% por codigo (Luau).
+--[[
+	MAYA CLUB - discoteca de 3 pisos generada 100% por codigo (Luau).
 
 	Piso 1: hall + pista LED + escenario DJ + barra + booths + lasers
 	Piso 2: VIP lounge de cristal con barra, sofas y balcon sobre la pista
@@ -23,14 +17,17 @@ local Lighting = game:GetService("Lighting")
 local RunService = game:GetService("RunService")
 
 local CONFIG = {
-	Name = "AuraClub",
+	Name = "MayaClub",
 	-- OPCIONAL. ID de un audio que TENGAS permiso de usar. Acepta "rbxassetid://123", "123" o 123.
 	-- Vacio = sin musica (el club funciona igual). No se incluye ningun ID por defecto.
 	MusicId = "",
 	MusicVolume = 2,
 	-- Borra el Baseplate y el SpawnLocation de la plantilla (tapan/duplican el suelo del club)
 	RemoveTemplateObjects = true,
-	TileCount = 12, -- pista LED de TileCount x TileCount baldosas
+	TileCount = 16, -- pista LED de TileCount x TileCount paneles (la pista mide 64 x 64)
+	-- OPCIONAL. Imagen del logo (PNG en assets/MayaClub_logo_reference.png) ya SUBIDA a tu cuenta:
+	-- "rbxassetid://123", "123" o 123. Vacio = se usa el monograma y el texto hechos por codigo.
+	LogoImageId = "",
 	LowPerformance = false, -- true: animaciones menos frecuentes (equipos o servidores justos)
 	Boundary = true, -- barrera invisible sobre el muro perimetral (no se puede saltar ni escalar)
 
@@ -66,6 +63,7 @@ local function normalizeAudioId(id)
 	return clean
 end
 CONFIG.MusicId = normalizeAudioId(CONFIG.MusicId)
+CONFIG.LogoImageId = normalizeAudioId(CONFIG.LogoImageId)
 
 -- segundos entre actualizaciones de cada efecto (cada cambio de propiedad se replica a los clientes)
 local RATES = CONFIG.LowPerformance and { fast = 0.1, tiles = 0.5, glows = 0.5, mirror = 0.25 }
@@ -101,6 +99,9 @@ local C = {
 	flame = Color3.fromRGB(255, 196, 60),
 	candle = Color3.fromRGB(238, 222, 188),
 	web = Color3.fromRGB(225, 225, 240),
+	violet = Color3.fromRGB(150, 60, 255),
+	silver = Color3.fromRGB(205, 208, 228),
+	navy = Color3.fromRGB(14, 12, 30),
 }
 local M = Enum.Material
 local DECOR = { CanCollide = false, CastShadow = false }
@@ -285,10 +286,10 @@ local function lamp(parent, name, x, y, z, color, range, brightness)
 	return p
 end
 
--- rejilla 3x3 de luces de relleno cubriendo todo el piso (separacion 40, alcance 40)
+-- rejilla 3x3 de luces de relleno cubriendo todo el piso de 160 (separacion 56, alcance 60)
 local function fillGrid(parent, name, y, color, range, brightness)
-	for _, x in { -40, 0, 40 } do
-		for _, z in { -40, 0, 40 } do
+	for _, x in { -56, 0, 56 } do
+		for _, z in { -56, 0, 56 } do
 			lamp(parent, name, x, y, z, color, range, brightness)
 		end
 	end
@@ -308,7 +309,7 @@ local function cycleColor(t, phase)
 end
 
 -- cartel con SurfaceGui. (dx,dz) = hacia donde mira el cartel
-local function sign(parent, name, cx, cy, cz, w, h, dx, dz, text, color, cycle)
+local function sign(parent, name, cx, cy, cz, w, h, dx, dz, text, color, cycle, style, image)
 	local pos = Vector3.new(cx, cy, cz)
 	local p = P(
 		parent,
@@ -333,6 +334,29 @@ local function sign(parent, name, cx, cy, cz, w, h, dx, dz, text, color, cycle)
 	tl.Font = Enum.Font.GothamBlack
 	tl.TextColor3 = color
 	tl.Parent = gui
+	if style == "chrome" then
+		-- texto cromado: degradado blanco-azulado con contorno violeta (como el logotipo)
+		tl.TextColor3 = Color3.fromRGB(235, 238, 250)
+		tl.TextStrokeColor3 = C.violet
+		tl.TextStrokeTransparency = 0.3
+		local g = Instance.new("UIGradient")
+		g.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(150, 190, 255))
+		g.Rotation = 90
+		g.Parent = tl
+	end
+	if image and image ~= "" then
+		-- logo opcional importado como imagen: va a la izquierda del texto
+		local img = Instance.new("ImageLabel")
+		img.Name = "Logo"
+		img.BackgroundTransparency = 1
+		img.Image = image
+		img.ScaleType = Enum.ScaleType.Fit
+		img.Position = UDim2.fromScale(0.02, 0.08)
+		img.Size = UDim2.fromScale(0.2, 0.84)
+		img.Parent = gui
+		tl.Position = UDim2.fromScale(0.24, 0)
+		tl.Size = UDim2.fromScale(0.74, 1)
+	end
 	if cycle then
 		table.insert(fx.signs, { label = tl, phase = #fx.signs * 0.7 })
 	end
@@ -999,28 +1023,249 @@ lightShaft = function(part, color, length, w0, w1)
 end
 
 ------------------------------------------------------------------------
--- Mundo exterior: calles, aceras, parqueadero y perimetro
+-- Identidad MAYA CLUB: monograma M plateado con acentos violeta/cian (recreado con piezas)
 ------------------------------------------------------------------------
--- Limites jugables (cara interior del muro): X -98..98, Z -98..156. El club (+-50) queda
--- rodeado por: acera interior (hasta +-66), calle de 20 (hasta +-86), acera exterior (hasta
--- +-98). Al sur de la calle frontal esta el parqueadero (Z 98..156), unido a la puerta del
--- club por un paso de peatones elevado a ras de las aceras (sin escalones).
-local WORLD = { x1 = -98, x2 = 98, z1 = -98, z2 = 156 }
+local SILVER, VIOLET, NAVY = C.silver, C.violet, C.navy
+
+-- trazo 2D del monograma entre (u1,v1) y (u2,v2). zoff > 0 queda DETRAS de la cara frontal.
+-- base = CFrame del monograma (origen abajo-centro, frente = -Z local), S = escala
+local function mbar(parent, name, base, S, u1, v1, u2, v2, thick, depth, zoff, color, material)
+	local len = math.sqrt((u2 - u1) ^ 2 + (v2 - v1) ^ 2) * S
+	local ang = math.atan2(v2 - v1, u2 - u1)
+	return P(
+		parent,
+		name,
+		base * CFrame.new((u1 + u2) / 2 * S, (v1 + v2) / 2 * S, zoff * S) * CFrame.Angles(0, 0, ang),
+		Vector3.new(len, thick * S, depth * S),
+		color,
+		material,
+		DECOR
+	)
+end
+
+-- monograma M: 2 pilares exteriores con punta, 2 pilares interiores, 2 diagonales que forman la V,
+-- bloque central, contorno violeta de neon por detras y acentos cian por delante.
+-- Mide 44 x 38 studs a escala 1. (x,y,z) = abajo-centro; (nx,nz) = hacia donde mira. withPlate = placa oscura.
+local function monogram(parent, name, x, y, z, nx, nz, S, withPlate)
+	local base = CFrame.lookAt(Vector3.new(x, y, z), Vector3.new(x + nx, y, z + nz))
+	local strokes = {
+		{ -19, 1, -19, 27, 6 }, -- pilar exterior
+		{ -22, 26, -15.5, 37, 3.2 }, -- punta del pilar exterior
+		{ -10, 2, -10, 22, 4 }, -- pilar interior
+		{ -13, 34, -1, 15, 5.5 }, -- diagonal hacia el centro
+	}
+	for i, st in strokes do
+		for _, sx in { -1, 1 } do
+			local n = name .. "_" .. i .. (sx < 0 and "L" or "R")
+			mbar(parent, n .. "_Edge", base, S, sx * st[1], st[2], sx * st[3], st[4], st[5] + 1.1, 0.4, 0.45, VIOLET, M.Neon)
+			mbar(parent, n, base, S, sx * st[1], st[2], sx * st[3], st[4], st[5], 1.2, 0, SILVER, M.Metal)
+		end
+	end
+	mbar(parent, name .. "_CoreEdge", base, S, 0, 0.2, 0, 16, 8.4, 0.4, 0.45, VIOLET, M.Neon)
+	mbar(parent, name .. "_Core", base, S, 0, 0.5, 0, 16, 7, 1.2, 0, SILVER, M.Metal)
+	for _, sx in { -1, 1 } do
+		mbar(parent, name .. "_CyanV" .. sx, base, S, sx * 12.2, 33, sx * 0.6, 16.6, 0.7, 0.3, -0.75, C.cyan, M.Neon)
+		mbar(parent, name .. "_CyanOut" .. sx, base, S, sx * 16.4, 4, sx * 16.4, 23, 0.6, 0.3, -0.75, C.cyan, M.Neon)
+		mbar(parent, name .. "_CyanIn" .. sx, base, S, sx * 8.0, 4, sx * 8.0, 19, 0.6, 0.3, -0.75, C.cyan, M.Neon)
+	end
+	if withPlate then
+		P(parent, name .. "_Plate", base * CFrame.new(0, 19 * S, 0.85 * S), Vector3.new(50 * S, 42 * S, 0.5 * S), NAVY, M.Metal, DECOR)
+	end
+end
+
+-- monograma pegado a una pared: (wx,wz) = punto de la pared, (nx,nz) = normal saliendo de ella
+local function wallMonogram(parent, name, wx, y, wz, nx, nz, S)
+	monogram(parent, name, wx + nx * 1.1 * S, y, wz + nz * 1.1 * S, nx, nz, S, true)
+end
+
+------------------------------------------------------------------------
+-- Coches deportivos decorativos (frente = -Z local). Largo 16, ancho 7, alto <= 4.4.
+-- Solo la carroceria baja (_Body) y la cabina (_Cabin) colisionan; el resto es visual.
+------------------------------------------------------------------------
+local CAR_PAINT = {
+	red = Color3.fromRGB(190, 22, 36),
+	blue = Color3.fromRGB(26, 68, 205),
+	white = Color3.fromRGB(240, 240, 246),
+	black = Color3.fromRGB(22, 22, 28),
+}
+local CAR_GLASS = Color3.fromRGB(26, 38, 56)
+local CHROME = Color3.fromRGB(215, 218, 230)
+
+local function cpart(parent, name, cf, size, color, material, extra)
+	local e = { CanCollide = false, CastShadow = false }
+	if extra then
+		for k, v in extra do
+			e[k] = v
+		end
+	end
+	return P(parent, name, cf, size, color, material, e)
+end
+
+-- 4 ruedas: neumatico, llanta cromada y buje. track = distancia al centro, zf/zr = ejes, r = radio
+local function carWheels(parent, name, cf, track, zf, zr, r)
+	local shape = withShape(Enum.PartType.Cylinder)
+	for _, sx in { -1, 1 } do
+		for _, sz in { zf, zr } do
+			local w = cf * CFrame.new(sx * track, r, sz)
+			cpart(parent, name .. "_Tire", w, Vector3.new(1.3, 2 * r, 2 * r), C.black, M.SmoothPlastic, shape)
+			cpart(parent, name .. "_Rim", w, Vector3.new(1.4, 1.5 * r, 1.5 * r), CHROME, M.Metal, withShape(Enum.PartType.Cylinder, { Reflectance = 0.3 }))
+			cpart(parent, name .. "_Hub", w, Vector3.new(1.5, 0.5 * r, 0.5 * r), C.dark, M.Metal, shape)
+		end
+	end
+end
+
+-- cilindro con el eje a lo largo de Z (luces traseras redondas, escapes)
+local function cylCar(parent, name, cf, length, diameter, color, material, extra)
+	return cpart(parent, name, cf * CFrame.Angles(0, math.pi / 2, 0), Vector3.new(length, diameter, diameter), color, material, withShape(Enum.PartType.Cylinder, extra))
+end
+
+-- Estilo Ferrari: deportivo central, muy bajo y ancho, capo corto, cabina adelantada,
+-- parabrisas muy inclinado, tomas laterales, alerón pequeño y 4 luces traseras redondas.
+local function carFerrari(parent, name, cf, color)
+	local paint = { Reflectance = 0.22 }
+	P(parent, name .. "_Body", cf * CFrame.new(0, 1.15, 0), Vector3.new(7, 1.3, 15.6), color, M.SmoothPlastic, paint)
+	cpart(parent, name .. "_Hood", cf * CFrame.new(0, 1.95, -5.0) * CFrame.Angles(math.rad(-8), 0, 0), Vector3.new(6.6, 0.6, 5.6), color, M.SmoothPlastic, paint)
+	cpart(parent, name .. "_Windshield", cf * CFrame.new(0, 2.85, -1.7) * CFrame.Angles(math.rad(-34), 0, 0), Vector3.new(5.6, 0.16, 3.4), CAR_GLASS, M.Glass, { Transparency = 0.3, Reflectance = 0.28 })
+	P(parent, name .. "_Cabin", cf * CFrame.new(0, 2.9, 0.9), Vector3.new(5.4, 1.9, 3.8), CAR_GLASS, M.Glass, { Transparency = 0.35, Reflectance = 0.2 })
+	cpart(parent, name .. "_Roof", cf * CFrame.new(0, 3.85, 1.0), Vector3.new(5.2, 0.3, 3.2), color, M.SmoothPlastic, paint)
+	cpart(parent, name .. "_Deck", cf * CFrame.new(0, 3.15, 5.3) * CFrame.Angles(math.rad(15), 0, 0), Vector3.new(6.0, 0.4, 5.8), color, M.SmoothPlastic, paint)
+	cpart(parent, name .. "_Engine", cf * CFrame.new(0, 2.5, 4.3), Vector3.new(6.0, 1.2, 3.4), color, M.SmoothPlastic, paint)
+	cpart(parent, name .. "_Rear", cf * CFrame.new(0, 1.8, 7.6), Vector3.new(6.6, 1.4, 0.8), color, M.SmoothPlastic, paint)
+	for _, sx in { -1, 1 } do
+		cpart(parent, name .. "_Intake", cf * CFrame.new(sx * 3.5, 2.2, 3.6), Vector3.new(0.5, 1.0, 3.4), C.black, M.SmoothPlastic)
+		cpart(parent, name .. "_FenderF", cf * CFrame.new(sx * 3.6, 1.9, -4.8), Vector3.new(0.7, 0.9, 3.6), color, M.SmoothPlastic, paint)
+		cpart(parent, name .. "_FenderR", cf * CFrame.new(sx * 3.7, 2.0, 4.8), Vector3.new(0.8, 1.1, 3.8), color, M.SmoothPlastic, paint)
+		cpart(parent, name .. "_Mirror", cf * CFrame.new(sx * 2.95, 3.0, -0.6), Vector3.new(0.5, 0.45, 0.7), color, M.SmoothPlastic, paint)
+		cpart(parent, name .. "_Headlight", cf * CFrame.new(sx * 2.2, 1.95, -7.85) * CFrame.Angles(0, sx * 0.2, 0), Vector3.new(1.6, 0.34, 0.2), C.warmWhite, M.Neon)
+		cpart(parent, name .. "_FrontIntake", cf * CFrame.new(sx * 2.0, 1.0, -7.9), Vector3.new(1.8, 0.5, 0.2), C.black, M.SmoothPlastic)
+		for k, tx in { 2.0, 3.0 } do
+			cylCar(parent, name .. "_Taillight" .. k, cf * CFrame.new(sx * tx, 2.05, 7.95), 0.16, 0.95, Color3.fromRGB(255, 40, 40), M.Neon)
+		end
+		cpart(parent, name .. "_SpoilerPost", cf * CFrame.new(sx * 2.0, 2.7, 7.7), Vector3.new(0.2, 0.9, 0.5), C.black, M.Metal)
+		cylCar(parent, name .. "_Exhaust", cf * CFrame.new(sx * 1.2, 0.95, 8.15), 0.8, 0.7, CHROME, M.Metal, { Reflectance = 0.3 })
+	end
+	cpart(parent, name .. "_Spoiler", cf * CFrame.new(0, 3.1, 7.9), Vector3.new(5.6, 0.14, 1.2), C.black, M.SmoothPlastic)
+	cpart(parent, name .. "_Splitter", cf * CFrame.new(0, 0.55, -7.6), Vector3.new(6.8, 0.2, 1.4), C.black, M.SmoothPlastic)
+	cpart(parent, name .. "_Diffuser", cf * CFrame.new(0, 0.7, 7.4), Vector3.new(5.2, 0.6, 1.4), C.black, M.SmoothPlastic)
+	carWheels(parent, name, cf, 2.9, -4.9, 4.9, 1.3)
+end
+
+-- Estilo Ford GT: cabina en gota muy estrecha, grandes caderas traseras, arbotantes laterales
+-- (flying buttresses), tomas en tunel y dos faros traseros circulares. stripes = bandas blancas.
+local function carGT(parent, name, cf, color, stripes)
+	local paint = { Reflectance = 0.22 }
+	P(parent, name .. "_Body", cf * CFrame.new(0, 1.1, 0), Vector3.new(7.2, 1.2, 15.8), color, M.SmoothPlastic, paint)
+	cpart(parent, name .. "_Hood", cf * CFrame.new(0, 1.8, -5.4) * CFrame.Angles(math.rad(-6), 0, 0), Vector3.new(6.0, 0.5, 5.0), color, M.SmoothPlastic, paint)
+	cpart(parent, name .. "_Windshield", cf * CFrame.new(0, 2.75, -2.2) * CFrame.Angles(math.rad(-33), 0, 0), Vector3.new(4.4, 0.16, 3.6), CAR_GLASS, M.Glass, { Transparency = 0.3, Reflectance = 0.28 })
+	P(parent, name .. "_Cabin", cf * CFrame.new(0, 2.8, 0.4), Vector3.new(3.9, 1.7, 3.4), CAR_GLASS, M.Glass, { Transparency = 0.35, Reflectance = 0.2 })
+	cpart(parent, name .. "_Roof", cf * CFrame.new(0, 3.75, -0.2), Vector3.new(3.4, 0.3, 2.0), color, M.SmoothPlastic, paint)
+	cpart(parent, name .. "_RearGlass", cf * CFrame.new(0, 3.0, 3.0) * CFrame.Angles(math.rad(20), 0, 0), Vector3.new(3.8, 0.16, 4.4), CAR_GLASS, M.Glass, { Transparency = 0.3, Reflectance = 0.28 })
+	cpart(parent, name .. "_Tail", cf * CFrame.new(0, 2.1, 6.6), Vector3.new(5.4, 0.8, 3.0), color, M.SmoothPlastic, paint)
+	cpart(parent, name .. "_Engine", cf * CFrame.new(0, 2.05, 4.0), Vector3.new(4.6, 0.9, 3.0), C.black, M.SmoothPlastic)
+	for _, sx in { -1, 1 } do
+		cpart(parent, name .. "_FenderF", cf * CFrame.new(sx * 3.4, 1.9, -4.5), Vector3.new(0.9, 0.9, 4.0), color, M.SmoothPlastic, paint)
+		cpart(parent, name .. "_Haunch", cf * CFrame.new(sx * 3.2, 2.1, 3.2), Vector3.new(1.3, 1.5, 5.4), color, M.SmoothPlastic, paint)
+		cpart(parent, name .. "_Buttress", cf * CFrame.new(sx * 2.4, 2.85, 3.6) * CFrame.Angles(math.rad(18), 0, 0), Vector3.new(0.9, 0.35, 4.8), color, M.SmoothPlastic, paint)
+		cpart(parent, name .. "_Scoop", cf * CFrame.new(sx * 3.55, 2.1, 1.0), Vector3.new(0.6, 1.2, 2.8), C.black, M.SmoothPlastic)
+		cpart(parent, name .. "_Mirror", cf * CFrame.new(sx * 2.2, 3.0, -1.0), Vector3.new(0.5, 0.45, 0.7), color, M.SmoothPlastic, paint)
+		cpart(parent, name .. "_Headlight", cf * CFrame.new(sx * 2.3, 1.8, -7.9) * CFrame.Angles(0, sx * 0.2, 0), Vector3.new(1.5, 0.3, 0.2), C.warmWhite, M.Neon)
+		cpart(parent, name .. "_FrontIntake", cf * CFrame.new(sx * 1.9, 1.0, -7.9), Vector3.new(2.0, 0.7, 0.2), C.black, M.SmoothPlastic)
+		cylCar(parent, name .. "_Taillight", cf * CFrame.new(sx * 2.3, 2.2, 8.0), 0.16, 1.2, Color3.fromRGB(255, 40, 40), M.Neon)
+		cylCar(parent, name .. "_Exhaust", cf * CFrame.new(sx * 0.7, 1.2, 8.15), 0.9, 0.9, CHROME, M.Metal, { Reflectance = 0.3 })
+		cpart(parent, name .. "_WingPlate", cf * CFrame.new(sx * 3.1, 3.2, 7.2), Vector3.new(0.15, 0.9, 1.4), C.black, M.SmoothPlastic)
+	end
+	cpart(parent, name .. "_Wing", cf * CFrame.new(0, 3.3, 7.2), Vector3.new(6.2, 0.14, 1.4), C.black, M.SmoothPlastic)
+	cpart(parent, name .. "_Splitter", cf * CFrame.new(0, 0.55, -7.7), Vector3.new(6.8, 0.2, 1.4), C.black, M.SmoothPlastic)
+	if stripes then
+		for _, sx in { -1, 1 } do
+			cpart(parent, name .. "_StripeHood", cf * CFrame.new(sx * 0.9, 2.08, -5.4) * CFrame.Angles(math.rad(-6), 0, 0), Vector3.new(0.5, 0.06, 5.0), C.white, M.SmoothPlastic)
+			cpart(parent, name .. "_StripeRoof", cf * CFrame.new(sx * 0.9, 3.93, -0.2), Vector3.new(0.5, 0.06, 2.0), C.white, M.SmoothPlastic)
+		end
+	end
+	carWheels(parent, name, cf, 2.95, -5.0, 5.0, 1.3)
+end
+
+-- Estilo Ford Mustang: capo largo con toma de aire, parabrisas inclinado, techo fastback,
+-- cola corta con alerón "pato", parrilla negra y 3 barras verticales de luz trasera por lado.
+local function carMustang(parent, name, cf, color, stripes)
+	local paint = { Reflectance = 0.22 }
+	P(parent, name .. "_Body", cf * CFrame.new(0, 1.3, 0), Vector3.new(7.0, 1.5, 16), color, M.SmoothPlastic, paint)
+	cpart(parent, name .. "_Hood", cf * CFrame.new(0, 2.35, -4.9) * CFrame.Angles(math.rad(-4), 0, 0), Vector3.new(6.6, 0.55, 6.2), color, M.SmoothPlastic, paint)
+	cpart(parent, name .. "_HoodScoop", cf * CFrame.new(0, 2.75, -4.2), Vector3.new(1.8, 0.3, 2.6), C.black, M.SmoothPlastic)
+	cpart(parent, name .. "_Windshield", cf * CFrame.new(0, 3.15, -1.1) * CFrame.Angles(math.rad(-36), 0, 0), Vector3.new(5.6, 0.16, 3.2), CAR_GLASS, M.Glass, { Transparency = 0.3, Reflectance = 0.28 })
+	P(parent, name .. "_Cabin", cf * CFrame.new(0, 2.9, 1.6), Vector3.new(5.5, 1.7, 4.6), CAR_GLASS, M.Glass, { Transparency = 0.35, Reflectance = 0.2 })
+	cpart(parent, name .. "_Roof", cf * CFrame.new(0, 4.0, 1.5), Vector3.new(5.4, 0.3, 3.4), color, M.SmoothPlastic, paint)
+	cpart(parent, name .. "_Fastback", cf * CFrame.new(0, 3.45, 4.6) * CFrame.Angles(math.rad(24), 0, 0), Vector3.new(5.2, 0.16, 3.8), CAR_GLASS, M.Glass, { Transparency = 0.3, Reflectance = 0.28 })
+	cpart(parent, name .. "_Trunk", cf * CFrame.new(0, 2.5, 7.2), Vector3.new(6.4, 0.3, 1.8), color, M.SmoothPlastic, paint)
+	cpart(parent, name .. "_TrunkBody", cf * CFrame.new(0, 2.2, 6.2), Vector3.new(6.2, 0.9, 3.4), color, M.SmoothPlastic, paint)
+	cpart(parent, name .. "_Duckbill", cf * CFrame.new(0, 2.78, 7.85), Vector3.new(6.2, 0.12, 0.8), C.black, M.SmoothPlastic)
+	cpart(parent, name .. "_Grille", cf * CFrame.new(0, 1.5, -8.0), Vector3.new(4.0, 0.9, 0.25), C.black, M.SmoothPlastic)
+	cpart(parent, name .. "_GrilleBar", cf * CFrame.new(0, 1.5, -8.14), Vector3.new(3.6, 0.1, 0.1), CHROME, M.Metal)
+	for _, sx in { -1, 1 } do
+		cpart(parent, name .. "_FlareF", cf * CFrame.new(sx * 3.6, 2.0, -4.9), Vector3.new(0.6, 1.0, 3.6), color, M.SmoothPlastic, paint)
+		cpart(parent, name .. "_FlareR", cf * CFrame.new(sx * 3.6, 2.0, 4.9), Vector3.new(0.6, 1.0, 3.6), color, M.SmoothPlastic, paint)
+		cpart(parent, name .. "_Mirror", cf * CFrame.new(sx * 3.2, 3.2, -1.1), Vector3.new(0.5, 0.45, 0.7), color, M.SmoothPlastic, paint)
+		cpart(parent, name .. "_Headlight", cf * CFrame.new(sx * 2.9, 1.9, -8.0), Vector3.new(1.3, 0.55, 0.2), C.warmWhite, M.Neon)
+		cpart(parent, name .. "_FogLight", cf * CFrame.new(sx * 2.0, 0.85, -8.0), Vector3.new(0.8, 0.35, 0.2), C.warmWhite, M.Neon)
+		for k, tx in { 1.4, 2.1, 2.8 } do
+			cpart(parent, name .. "_Taillight" .. k, cf * CFrame.new(sx * tx, 2.3, 8.05), Vector3.new(0.35, 1.0, 0.14), Color3.fromRGB(255, 40, 40), M.Neon)
+		end
+		cylCar(parent, name .. "_Exhaust", cf * CFrame.new(sx * 2.2, 0.9, 8.15), 0.9, 0.7, CHROME, M.Metal, { Reflectance = 0.3 })
+	end
+	cpart(parent, name .. "_Splitter", cf * CFrame.new(0, 0.55, -7.8), Vector3.new(6.8, 0.2, 1.2), C.black, M.SmoothPlastic)
+	cpart(parent, name .. "_Diffuser", cf * CFrame.new(0, 0.7, 7.5), Vector3.new(5.4, 0.6, 1.2), C.black, M.SmoothPlastic)
+	if stripes then
+		for _, sx in { -1, 1 } do
+			cpart(parent, name .. "_StripeHood", cf * CFrame.new(sx * 1.0, 2.66, -4.9) * CFrame.Angles(math.rad(-4), 0, 0), Vector3.new(0.5, 0.06, 6.2), stripes, M.SmoothPlastic)
+			cpart(parent, name .. "_StripeRoof", cf * CFrame.new(sx * 1.0, 4.17, 1.5), Vector3.new(0.5, 0.06, 3.4), stripes, M.SmoothPlastic)
+		end
+	end
+	carWheels(parent, name, cf, 2.9, -5.0, 5.0, 1.35)
+end
+
+-- coloca un coche en (x,z) sobre el suelo y; ry = giro (0: morro hacia -Z). model = ferrari|gt|mustang
+local function placeCar(parent, name, model, x, y, z, ry, paintName)
+	local cf = CFrame.new(x, y, z) * CFrame.Angles(0, ry, 0)
+	local color = CAR_PAINT[paintName]
+	if model == "ferrari" then
+		carFerrari(parent, name, cf, color)
+	elseif model == "gt" then
+		carGT(parent, name, cf, color, paintName == "blue")
+	else
+		carMustang(parent, name, cf, color, (paintName == "white" or paintName == "red") and C.black or (paintName == "black" and C.white or nil))
+	end
+end
+
+------------------------------------------------------------------------
+-- Disposicion general (160 x 160 el edificio; todo lo demas se calcula desde estas medidas)
+------------------------------------------------------------------------
+local HALF, IN = 80, 78 -- lado exterior/2 y cara interior de los muros del edificio
+local LAYOUT = {
+	half = HALF,
+	inner = IN,
+	-- pista de baile (dentro del atrio de doble altura)
+	dance = { x1 = -32, z1 = -56, x2 = 32, z2 = 8 },
+	atrium = { x1 = -40, z1 = -58, x2 = 40, z2 = 18 },
+	stage = { x1 = -34, z1 = -78, x2 = 34, z2 = -64, top = 3.3 },
+	-- escaleras de 10 studs: s1 piso1->2 (este, sube al norte), s2 piso2->3 (oeste, sube al sur)
+	s1 = { x1 = 68, x2 = 78, baseY = 0, zStart = 64, dir = -1, hole = { 68, 16, 78, 36 }, landIn = { 68, 64, 78, 78 }, landOut = { 68, 6, 78, 16 } },
+	s2 = { x1 = -78, x2 = -68, baseY = 24, zStart = -64, dir = 1, hole = { -78, -36, -68, -16 }, landIn = { -78, -78, -68, -64 }, landOut = { -78, -16, -68, -6 } },
+	pool = { 16, 26, 56, 64 },
+	spawn = { 0, 56 },
+}
+-- mundo exterior: acera interior (hasta 96), calzada de 20 (hasta 116), acera exterior (hasta 128)
+local WORLD = { x1 = -128, x2 = 128, z1 = -128, z2 = 206 }
+LAYOUT.world = WORLD
 local ROAD_Y = -0.3 -- superficie del asfalto (las aceras estan en y = 0)
-local LOT_Y = -0.24 -- superficie del parqueadero (una losa fina sobre el asfalto)
-local ASPHALT = Color3.fromRGB(34, 34, 42)
-local WALK = Color3.fromRGB(78, 72, 90)
-local WALK2 = Color3.fromRGB(88, 84, 100)
-local CURB = Color3.fromRGB(170, 166, 178)
+local LOT_Y = -0.24 -- superficie del parqueadero (losa fina sobre el asfalto)
+local ASPHALT = Color3.fromRGB(32, 32, 40)
+local WALK = Color3.fromRGB(84, 78, 98)
+local WALK2 = Color3.fromRGB(96, 92, 110)
+local CURB = Color3.fromRGB(176, 172, 184)
 local PAINT_W = Color3.fromRGB(235, 235, 240)
 local PAINT_Y = Color3.fromRGB(255, 200, 40)
 local PAINT_B = Color3.fromRGB(40, 110, 230)
 local PAINT = { CanCollide = false, CastShadow = false }
-local CAR_COLORS = {
-	Color3.fromRGB(190, 30, 50), Color3.fromRGB(30, 80, 190), Color3.fromRGB(235, 235, 240),
-	Color3.fromRGB(40, 40, 48), Color3.fromRGB(240, 150, 30), Color3.fromRGB(110, 60, 190),
-	Color3.fromRGB(40, 150, 90), Color3.fromRGB(150, 150, 160),
-}
 
 -- pintura plana (0.06 de alto) sobre el asfalto, sin colision
 local function paint(parent, name, x1, z1, x2, z2, color, y)
@@ -1032,14 +1277,15 @@ end
 -- along = "z": los peatones caminan en Z (calzada E-W); "x": caminan en X. len = largo del cruce.
 local function crosswalk(parent, name, cx, cz, along, len)
 	local n = math.floor(len / 2)
+	local slab_ = Color3.fromRGB(46, 46, 56)
 	if along == "z" then
-		B(parent, name .. "_Slab", cx - 6, -3, cz - len / 2, cx + 6, 0, cz + len / 2, Color3.fromRGB(46, 46, 56), M.Asphalt)
+		B(parent, name .. "_Slab", cx - 6, -3, cz - len / 2, cx + 6, 0, cz + len / 2, slab_, M.Asphalt)
 		for k = 0, n - 1 do
 			local z = cz - len / 2 + 0.55 + k * 2
 			B(parent, name .. "_Stripe" .. k, cx - 5, 0, z, cx + 5, 0.06, z + 0.9, PAINT_W, M.SmoothPlastic, PAINT)
 		end
 	else
-		B(parent, name .. "_Slab", cx - len / 2, -3, cz - 6, cx + len / 2, 0, cz + 6, Color3.fromRGB(46, 46, 56), M.Asphalt)
+		B(parent, name .. "_Slab", cx - len / 2, -3, cz - 6, cx + len / 2, 0, cz + 6, slab_, M.Asphalt)
 		for k = 0, n - 1 do
 			local x = cx - len / 2 + 0.55 + k * 2
 			B(parent, name .. "_Stripe" .. k, x, 0, cz - 5, x + 0.9, 0.06, cz + 5, PAINT_W, M.SmoothPlastic, PAINT)
@@ -1047,12 +1293,13 @@ local function crosswalk(parent, name, cx, cz, along, len)
 	end
 end
 
--- farola: poste, cabeza de neon calido y, opcionalmente, una luz real (range)
+-- farola: base, poste, brazo corto, cabeza de neon calido y, opcionalmente, una luz real (range)
 local function streetLamp(parent, name, x, y, z, range)
-	cyl(parent, name .. "_Base", x, y + 0.4, z, 0.8, 1.6, C.dark, M.Metal)
-	cyl(parent, name .. "_Pole", x, y + 7.4, z, 13.2, 0.5, C.dark, M.Metal)
-	local head = B(parent, name .. "_Head", x - 1, y + 14, z - 1, x + 1, y + 14.5, z + 1, C.warmWhite, M.Neon, DECOR)
-	B(parent, name .. "_Cap", x - 1.2, y + 14.5, z - 1.2, x + 1.2, y + 14.8, z + 1.2, C.dark, M.Metal, DECOR)
+	cyl(parent, name .. "_Base", x, y + 0.5, z, 1.0, 1.8, C.dark, M.Metal)
+	cyl(parent, name .. "_Pole", x, y + 7.6, z, 13.2, 0.5, C.dark, M.Metal)
+	local head = B(parent, name .. "_Head", x - 1.1, y + 14.2, z - 1.1, x + 1.1, y + 14.7, z + 1.1, C.warmWhite, M.Neon, DECOR)
+	B(parent, name .. "_Cap", x - 1.3, y + 14.7, z - 1.3, x + 1.3, y + 15.0, z + 1.3, C.dark, M.Metal, DECOR)
+	B(parent, name .. "_Neck", x - 0.4, y + 14.0, z - 0.4, x + 0.4, y + 14.2, z + 0.4, C.dark, M.Metal, DECOR)
 	if range then
 		addLight(head, C.warmWhite, range, false, 0.9)
 	end
@@ -1064,88 +1311,83 @@ local function signPost(parent, name, x, y, z, height, w, h, dx, dz, text, color
 	sign(parent, name .. "_Plate", x, y + height, z, w, h, dx, dz, text, color, false)
 end
 
--- coche decorativo (frente = -Z local). La carroceria y la cabina colisionan; ruedas y luces no.
-local function car(parent, name, x, z, ry, color)
-	local cf = CFrame.new(x, ROAD_Y, z) * CFrame.Angles(0, ry, 0)
-	P(parent, name .. "_Body", cf * CFrame.new(0, 1.1, 0), Vector3.new(6, 1.4, 12), color, M.SmoothPlastic, { Reflectance = 0.15 })
-	P(parent, name .. "_Cabin", cf * CFrame.new(0, 2.5, 0.8), Vector3.new(5.2, 1.4, 6.2), Color3.fromRGB(40, 60, 90), M.Glass, { Transparency = 0.35, Reflectance = 0.2 })
-	P(parent, name .. "_Roof", cf * CFrame.new(0, 3.28, 0.8), Vector3.new(5, 0.16, 5.8), color, M.SmoothPlastic, { Reflectance = 0.15, CanCollide = false })
-	for _, sx in { -1, 1 } do
-		for _, sz in { -3.8, 3.8 } do
-			P(parent, name .. "_Wheel", cf * CFrame.new(sx * 3.0, 1.1, sz), Vector3.new(0.8, 2.2, 2.2), C.black, M.SmoothPlastic, withShape(Enum.PartType.Cylinder, DECOR))
-		end
-		P(parent, name .. "_Headlight", cf * CFrame.new(sx * 2, 1.5, -6), Vector3.new(1.1, 0.5, 0.15), C.warmWhite, M.Neon, DECOR)
-		P(parent, name .. "_Taillight", cf * CFrame.new(sx * 2, 1.6, 6), Vector3.new(1.1, 0.5, 0.15), Color3.fromRGB(255, 40, 40), M.Neon, DECOR)
-	end
+-- arbol: tronco + copa de 3 esferas. y = suelo
+local function tree(parent, name, x, y, z, s)
+	cyl(parent, name .. "_Trunk", x, y + 3 * s, z, 6 * s, 1.0 * s, C.wood, M.Wood)
+	ball(parent, name .. "_Crown1", x, y + 8 * s, z, 8 * s, Color3.fromRGB(34, 120, 62), M.Grass, DECOR)
+	ball(parent, name .. "_Crown2", x + 1.6 * s, y + 6.6 * s, z + 1.2 * s, 5.6 * s, Color3.fromRGB(44, 138, 70), M.Grass, DECOR)
+	ball(parent, name .. "_Crown3", x - 1.6 * s, y + 7 * s, z - 1.2 * s, 5.6 * s, Color3.fromRGB(28, 104, 56), M.Grass, DECOR)
 end
 
 local function buildWorld()
 	local s, pk, pr = folders.Streets, folders.Parking, folders.Perimeter
 
 	-- terreno: un unico bloque que cubre calles, aceras y parqueadero (sin huecos al vacio)
-	B(s, "Ground", -100, -4, -100, 100, ROAD_Y, 158, ASPHALT, M.Asphalt)
+	B(s, "Ground", -130, -4, -130, 130, ROAD_Y, 208, ASPHALT, M.Asphalt)
 
 	-- aceras interiores (rodean el club) y exteriores (junto al muro). Todas en y = 0.
-	B(s, "SidewalkIn_N", -66, -3, -66, 66, 0, -50, WALK, M.Concrete)
-	B(s, "SidewalkIn_S", -66, -3, 50, 66, 0, 66, WALK, M.Concrete)
-	B(s, "SidewalkIn_W", -66, -3, -50, -50, 0, 50, WALK, M.Concrete)
-	B(s, "SidewalkIn_E", 50, -3, -50, 66, 0, 50, WALK, M.Concrete)
-	B(s, "SidewalkOut_N", -98, -3, -98, 98, 0, -86, WALK, M.Concrete)
-	B(s, "SidewalkOut_W", -98, -3, -86, -86, 0, 86, WALK, M.Concrete)
-	B(s, "SidewalkOut_E", 86, -3, -86, 98, 0, 86, WALK, M.Concrete)
-	-- acera sur partida por las dos entradas de vehiculos (x +-74..86), que quedan a ras del asfalto
-	B(s, "SidewalkOut_S1", -98, -3, 86, -86, 0, 98, WALK, M.Concrete)
-	B(s, "SidewalkOut_S2", -74, -3, 86, 74, 0, 98, WALK, M.Concrete)
-	B(s, "SidewalkOut_S3", 86, -3, 86, 98, 0, 98, WALK, M.Concrete)
+	B(s, "SidewalkIn_N", -96, -3, -96, 96, 0, -80, WALK, M.Pavement)
+	B(s, "SidewalkIn_S", -96, -3, 80, 96, 0, 96, WALK, M.Pavement)
+	B(s, "SidewalkIn_W", -96, -3, -80, -80, 0, 80, WALK, M.Pavement)
+	B(s, "SidewalkIn_E", 80, -3, -80, 96, 0, 80, WALK, M.Pavement)
+	B(s, "SidewalkOut_N", -128, -3, -128, 128, 0, -116, WALK, M.Pavement)
+	B(s, "SidewalkOut_W", -128, -3, -116, -116, 0, 116, WALK, M.Pavement)
+	B(s, "SidewalkOut_E", 116, -3, -116, 128, 0, 116, WALK, M.Pavement)
+	-- acera sur partida por las dos entradas de vehiculos (x +-102..120), que quedan a ras del asfalto
+	B(s, "SidewalkOut_S1", -128, -3, 116, -120, 0, 128, WALK, M.Pavement)
+	B(s, "SidewalkOut_S2", -102, -3, 116, 102, 0, 128, WALK, M.Pavement)
+	B(s, "SidewalkOut_S3", 120, -3, 116, 128, 0, 128, WALK, M.Pavement)
+	-- plaza de granito frente a la puerta (baldosa decorativa a ras)
+	B(s, "PlazaInlay", -30, -3, 82, 30, 0.04, 94, Color3.fromRGB(70, 64, 90), M.Granite)
 
 	-- bordillos (franja clara de 0.5 en el borde de cada acera); abiertos en los pasos de peatones
 	local function curb(name, x1, z1, x2, z2)
 		B(s, name, x1, -3, z1, x2, 0.08, z2, CURB, M.Concrete)
 	end
-	curb("CurbIn_N1", -66, -66, -6, -65.5)
-	curb("CurbIn_N2", 6, -66, 66, -65.5)
-	curb("CurbIn_S1", -66, 65.5, -6, 66)
-	curb("CurbIn_S2", 6, 65.5, 66, 66)
-	curb("CurbIn_W1", -66, -50, -65.5, -6)
-	curb("CurbIn_W2", -66, 6, -65.5, 50)
-	curb("CurbIn_E1", 65.5, -50, 66, -6)
-	curb("CurbIn_E2", 65.5, 6, 66, 50)
-	curb("CurbOut_N1", -98, -86.5, -6, -86)
-	curb("CurbOut_N2", 6, -86.5, 98, -86)
-	curb("CurbOut_W1", -86.5, -86, -86, -6)
-	curb("CurbOut_W2", -86.5, 6, -86, 86)
-	curb("CurbOut_E1", 86, -86, 86.5, -6)
-	curb("CurbOut_E2", 86, 6, 86.5, 86)
-	curb("CurbOut_S1", -98, 86, -86, 86.5)
-	curb("CurbOut_S2", -74, 86, -6, 86.5)
-	curb("CurbOut_S3", 6, 86, 74, 86.5)
-	curb("CurbOut_S4", 86, 86, 98, 86.5)
+	curb("CurbIn_N1", -96, -96, -6, -95.5)
+	curb("CurbIn_N2", 6, -96, 96, -95.5)
+	curb("CurbIn_S1", -96, 95.5, -6, 96)
+	curb("CurbIn_S2", 6, 95.5, 96, 96)
+	curb("CurbIn_W1", -96, -80, -95.5, -6)
+	curb("CurbIn_W2", -96, 6, -95.5, 80)
+	curb("CurbIn_E1", 95.5, -80, 96, -6)
+	curb("CurbIn_E2", 95.5, 6, 96, 80)
+	curb("CurbOut_N1", -128, -116.5, -6, -116)
+	curb("CurbOut_N2", 6, -116.5, 128, -116)
+	curb("CurbOut_W1", -116.5, -116, -116, -6)
+	curb("CurbOut_W2", -116.5, 6, -116, 116)
+	curb("CurbOut_E1", 116, -116, 116.5, -6)
+	curb("CurbOut_E2", 116, 6, 116.5, 116)
+	curb("CurbOut_S1", -128, 116, -120, 116.5)
+	curb("CurbOut_S2", -102, 116, -6, 116.5)
+	curb("CurbOut_S3", 6, 116, 102, 116.5)
+	curb("CurbOut_S4", 120, 116, 128, 116.5)
 
 	-- pasos de peatones elevados (a ras de aceras): sur (frente a la puerta), norte, oeste y este
-	crosswalk(s, "CrosswalkS", 0, 76, "z", 20)
-	crosswalk(s, "CrosswalkN", 0, -76, "z", 20)
-	crosswalk(s, "CrosswalkW", -76, 0, "x", 20)
-	crosswalk(s, "CrosswalkE", 76, 0, "x", 20)
+	crosswalk(s, "CrosswalkS", 0, 106, "z", 20)
+	crosswalk(s, "CrosswalkN", 0, -106, "z", 20)
+	crosswalk(s, "CrosswalkW", -106, 0, "x", 20)
+	crosswalk(s, "CrosswalkE", 106, 0, "x", 20)
 
 	-- lineas de detencion (una por sentido y paso)
-	paint(s, "StopLine_S1", -8, 76.6, -7.4, 85.4, PAINT_W)
-	paint(s, "StopLine_S2", 7.4, 66.6, 8, 75.4, PAINT_W)
-	paint(s, "StopLine_N1", -8, -75.4, -7.4, -66.6, PAINT_W)
-	paint(s, "StopLine_N2", 7.4, -85.4, 8, -76.6, PAINT_W)
-	paint(s, "StopLine_W1", -85.4, -8, -76.6, -7.4, PAINT_W)
-	paint(s, "StopLine_W2", -75.4, 7.4, -66.6, 8, PAINT_W)
-	paint(s, "StopLine_E1", 66.6, -8, 75.4, -7.4, PAINT_W)
-	paint(s, "StopLine_E2", 76.6, 7.4, 85.4, 8, PAINT_W)
+	paint(s, "StopLine_S1", -8, 106.6, -7.4, 115.4, PAINT_W)
+	paint(s, "StopLine_S2", 7.4, 96.6, 8, 105.4, PAINT_W)
+	paint(s, "StopLine_N1", -8, -105.4, -7.4, -96.6, PAINT_W)
+	paint(s, "StopLine_N2", 7.4, -115.4, 8, -106.6, PAINT_W)
+	paint(s, "StopLine_W1", -115.4, -8, -106.6, -7.4, PAINT_W)
+	paint(s, "StopLine_W2", -105.4, 7.4, -96.6, 8, PAINT_W)
+	paint(s, "StopLine_E1", 96.6, -8, 105.4, -7.4, PAINT_W)
+	paint(s, "StopLine_E2", 106.6, 7.4, 115.4, 8, PAINT_W)
 
 	-- lineas de borde (blancas continuas) y eje central (amarillo discontinuo)
-	paint(s, "EdgeLine_S_in", -86, 66.6, 86, 66.9, PAINT_W)
-	paint(s, "EdgeLine_S_out", -74, 85.1, 74, 85.4, PAINT_W)
-	paint(s, "EdgeLine_N_out", -86, -85.4, 86, -85.1, PAINT_W)
-	paint(s, "EdgeLine_N_in", -86, -66.9, 86, -66.6, PAINT_W)
-	paint(s, "EdgeLine_W_out", -85.4, -66, -85.1, 66, PAINT_W)
-	paint(s, "EdgeLine_W_in", -66.9, -66, -66.6, 66, PAINT_W)
-	paint(s, "EdgeLine_E_in", 66.6, -66, 66.9, 66, PAINT_W)
-	paint(s, "EdgeLine_E_out", 85.1, -66, 85.4, 66, PAINT_W)
+	paint(s, "EdgeLine_S_in", -116, 96.6, 116, 96.9, PAINT_W)
+	paint(s, "EdgeLine_S_out", -102, 115.1, 102, 115.4, PAINT_W)
+	paint(s, "EdgeLine_N_out", -116, -115.4, 116, -115.1, PAINT_W)
+	paint(s, "EdgeLine_N_in", -116, -96.9, 116, -96.6, PAINT_W)
+	paint(s, "EdgeLine_W_out", -115.4, -96, -115.1, 96, PAINT_W)
+	paint(s, "EdgeLine_W_in", -96.9, -96, -96.6, 96, PAINT_W)
+	paint(s, "EdgeLine_E_in", 96.6, -96, 96.9, 96, PAINT_W)
+	paint(s, "EdgeLine_E_out", 115.1, -96, 115.4, 96, PAINT_W)
 	local function dashes(name, along, fixed, from, to, y)
 		local c = from
 		while c < to do
@@ -1159,136 +1401,179 @@ local function buildWorld()
 			c += 8
 		end
 	end
-	dashes("Dash_S", "x", 76, -84, 84)
-	dashes("Dash_N", "x", -76, -84, 84)
-	dashes("Dash_W", "z", -76, -64, 64)
-	dashes("Dash_E", "z", 76, -64, 64)
+	dashes("Dash_S", "x", 106, -112, 112)
+	dashes("Dash_N", "x", -106, -112, 112)
+	dashes("Dash_W", "z", -106, -92, 92)
+	dashes("Dash_E", "z", 106, -92, 92)
 
 	------------------------------------------------------------------
-	-- Parqueadero (Z 98..156): 2 filas de 16 plazas de 8x14 + calle central de 24
+	-- Parqueadero (Z 128..206): 2 filas de 18 plazas de 10 x 20 + calle interior de 28
+	-- (plaza segun coche real ~7 x 16 studs: holgura de 1.5 a cada lado y 4 de fondo)
 	------------------------------------------------------------------
-	B(pk, "LotPad", -98, ROAD_Y, 98, 98, LOT_Y, 156, Color3.fromRGB(44, 42, 54), M.Asphalt)
+	B(pk, "LotPad", -128, ROAD_Y, 128, 128, LOT_Y, 206, Color3.fromRGB(42, 40, 52), M.Asphalt)
 	-- bordillo del lado de la acera (abierto en el paso peatonal central y en las 2 entradas)
-	for i, r in { { -98, -86 }, { -74, -4 }, { 4, 74 }, { 86, 98 } } do
-		B(pk, "LotCurb" .. i, r[1], -3, 97.5, r[2], 0.08, 98, CURB, M.Concrete)
+	for i, r in { { -128, -120 }, { -102, -4 }, { 4, 102 }, { 120, 128 } } do
+		B(pk, "LotCurb" .. i, r[1], -3, 127.5, r[2], 0.08, 128, CURB, M.Concrete)
 	end
 	-- camino peatonal central (a ras de las aceras) y paso elevado sobre la calle interior
-	B(pk, "LotWalk1", -4, -3, 98, 4, 0, 112, WALK2, M.Concrete)
-	B(pk, "LotWalk2", -4, -3, 136, 4, 0, 150, WALK2, M.Concrete)
-	crosswalk(pk, "LotCross", 0, 124, "z", 24)
+	B(pk, "LotWalk1", -4, -3, 128, 4, 0, 148, WALK2, M.Pavement)
+	B(pk, "LotWalk2", -4, -3, 176, 4, 0, 196, WALK2, M.Pavement)
+	crosswalk(pk, "LotCross", 0, 162, "z", 28)
 
-	-- plazas: lineas divisorias y linea frontal, para las dos filas
-	for _, row in { { 98, 112, 112 }, { 136, 150, 136 } } do
-		for k = 0, 7 do
-			local xl, xr = -68 + 8 * k, 12 + 8 * k
-			paint(pk, "SlotLine", xl - 0.15, row[1], xl + 0.15, row[2], PAINT_W, LOT_Y)
-			paint(pk, "SlotLine", xr - 0.15, row[1], xr + 0.15, row[2], PAINT_W, LOT_Y)
+	-- plazas: lineas divisorias, linea frontal y topes de rueda, para las dos filas
+	local rows = { { z1 = 128, z2 = 148, front = 148, stopZ = 128.6 }, { z1 = 176, z2 = 196, front = 176, stopZ = 195.4 } }
+	for r, row in rows do
+		for k = 0, 9 do
+			local xl, xr = -98 + 10 * k, 8 + 10 * k
+			paint(pk, "SlotLine", xl - 0.15, row.z1, xl + 0.15, row.z2, PAINT_W, LOT_Y)
+			paint(pk, "SlotLine", xr - 0.15, row.z1, xr + 0.15, row.z2, PAINT_W, LOT_Y)
 		end
-		paint(pk, "SlotFront", -68, row[3] - 0.15, -12, row[3] + 0.15, PAINT_W, LOT_Y)
-		paint(pk, "SlotFront", 12, row[3] - 0.15, 68, row[3] + 0.15, PAINT_W, LOT_Y)
+		paint(pk, "SlotFront", -98, row.front - 0.15, -8, row.front + 0.15, PAINT_W, LOT_Y)
+		paint(pk, "SlotFront", 8, row.front - 0.15, 98, row.front + 0.15, PAINT_W, LOT_Y)
+		for k = 0, 8 do
+			for _, xc in { -93 + 10 * k, 13 + 10 * k } do
+				B(pk, "WheelStop", xc - 2.2, LOT_Y, row.stopZ - 0.3, xc + 2.2, LOT_Y + 0.5, row.stopZ + 0.3, CURB, M.Concrete)
+			end
+		end
 	end
-	dashes("LotDash", "x", 124, -92, 92, LOT_Y)
+	dashes("LotDash", "x", 162, -118, 118, LOT_Y)
+	-- flechas de sentido sobre la calle interior (2 por carril)
+	for _, ax in { -70, 70 } do
+		paint(pk, "LotArrow", ax - 3, 155.8, ax + 3, 156.2, PAINT_W, LOT_Y)
+		paint(pk, "LotArrowHead", ax + 2.4, 154.6, ax + 3.0, 157.4, PAINT_W, LOT_Y)
+		paint(pk, "LotArrow2", ax - 3, 167.8, ax + 3, 168.2, PAINT_W, LOT_Y)
+		paint(pk, "LotArrow2Head", ax - 3.0, 166.6, ax - 2.4, 169.4, PAINT_W, LOT_Y)
+	end
 
 	-- plazas accesibles (las mas cercanas al camino peatonal), pintadas de azul y senalizadas
-	paint(pk, "AccessL", -11, 99, -5, 111, PAINT_B, LOT_Y)
-	paint(pk, "AccessR", 5, 99, 11, 111, PAINT_B, LOT_Y)
-	signPost(pk, "AccessSignL", -12, LOT_Y, 99.5, 8, 6, 1.6, 0, 1, "ACCESIBLE", C.cyan)
-	signPost(pk, "AccessSignR", 12, LOT_Y, 99.5, 8, 6, 1.6, 0, 1, "ACCESIBLE", C.cyan)
+	paint(pk, "AccessL", -17, 129, -9, 147, PAINT_B, LOT_Y)
+	paint(pk, "AccessR", 9, 129, 17, 147, PAINT_B, LOT_Y)
+	signPost(pk, "AccessSignL", -18, LOT_Y, 129.5, 8, 7, 1.7, 0, 1, "ACCESIBLE", C.cyan)
+	signPost(pk, "AccessSignR", 18, LOT_Y, 129.5, 8, 7, 1.7, 0, 1, "ACCESIBLE", C.cyan)
 
-	-- coches aparcados (algunas plazas libres; las accesibles siempre libres)
-	local cars = {
-		{ -64, 105, 0 }, { -56, 105, 0 }, { -40, 105, 0 }, { -32, 105, 0 }, { 24, 105, 0 }, { 40, 105, 0 }, { 56, 105, 0 },
-		{ -56, 143, math.pi }, { -48, 143, math.pi }, { -24, 143, math.pi }, { -16, 143, math.pi }, { 16, 143, math.pi },
-		{ 32, 143, math.pi }, { 48, 143, math.pi }, { 64, 143, math.pi },
+	-- coches deportivos aparcados: 20 en 36 plazas (las accesibles siempre libres).
+	-- fila norte (morro hacia el norte) y fila sur (morro hacia el sur)
+	local models = { "ferrari", "gt", "mustang" }
+	local paints = { "red", "blue", "white", "black" }
+	local carSlots = {
+		{ 138, 0, { -93, -83, -63, -53, -33 } },
+		{ 138, 0, { 33, 53, 63, 83, 93 } },
+		{ 186, math.pi, { -93, -73, -63, -43, -23 } },
+		{ 186, math.pi, { 13, 33, 53, 73, 93 } },
 	}
-	for i, c in cars do
-		car(pk, "Car" .. i, c[1], c[2], c[3], CAR_COLORS[(i - 1) % #CAR_COLORS + 1])
+	local n = 0
+	for _, g in carSlots do
+		for _, xc in g[3] do
+			n += 1
+			placeCar(pk, "Car" .. n, models[(n - 1) % 3 + 1], xc, LOT_Y, g[1], g[2], paints[(n * 3 - 1) % 4 + 1])
+		end
 	end
 
-	-- entradas y salida de vehiculos: portico con cartel por ambos lados
-	for _, g in { { 80, "ENTRADA", Color3.fromRGB(110, 235, 70) }, { -80, "SALIDA", Color3.fromRGB(255, 80, 80) } } do
+	-- entrada (este) y salida (oeste) de vehiculos: portico con cartel por ambos lados
+	for _, g in { { 111, "ENTRADA", Color3.fromRGB(110, 235, 70) }, { -111, "SALIDA", Color3.fromRGB(255, 80, 80) } } do
 		local gx = g[1]
-		for _, px in { gx - 6.5, gx + 6.5 } do
-			cyl(pk, "GatePost", px, 6, 92, 12, 0.6, C.dark, M.Metal)
+		for _, px in { gx - 10.5, gx + 10.5 } do
+			cyl(pk, "GatePost", px, 7, 122, 14, 0.7, C.dark, M.Metal)
 		end
-		B(pk, "GateBeam", gx - 7, 12, 91.7, gx + 7, 12.6, 92.3, C.dark, M.Metal)
-		for _, hx in { gx - 3.5, gx + 3.5 } do
-			B(pk, "GateHanger", hx - 0.1, 11, 91.9, hx + 0.1, 12, 92.1, C.dark, M.Metal, DECOR)
+		B(pk, "GateBeam", gx - 11, 14, 121.7, gx + 11, 14.7, 122.3, C.dark, M.Metal)
+		for _, hx in { gx - 4.5, gx + 4.5 } do
+			B(pk, "GateHanger", hx - 0.1, 13, 121.9, hx + 0.1, 14, 122.1, C.dark, M.Metal, DECOR)
 		end
-		sign(pk, "GateSignN", gx, 9.5, 91.65, 10, 3, 0, -1, g[2], g[3], false)
-		sign(pk, "GateSignS", gx, 9.5, 92.35, 10, 3, 0, 1, g[2], g[3], false)
+		sign(pk, "GateSignN", gx, 11.5, 121.65, 12, 3.4, 0, -1, g[2], g[3], false)
+		sign(pk, "GateSignS", gx, 11.5, 122.35, 12, 3.4, 0, 1, g[2], g[3], false)
 	end
-	signPost(pk, "StopSign", -71.5, 0, 92, 8, 3, 3, 0, 1, "PARE", Color3.fromRGB(255, 70, 70))
+	signPost(pk, "StopSign", -99, 0, 122, 8, 3, 3, 0, 1, "PARE", Color3.fromRGB(255, 70, 70))
 
 	-- carteles direccionales y nombres de calle
-	signPost(s, "DirSignA", 18, 0, 92, 9, 8, 2, 0, -1, "PARQUEADERO v", C.cyan)
-	signPost(s, "DirSignB", 18, 0, 92.9, 9, 8, 2, 0, 1, "AURA CLUB ^", C.magenta)
-	signPost(s, "NameSignS", -92, 0, 90, 8, 7, 2, 0, -1, "AV. AURA", C.white)
-	signPost(s, "NameSignN", 92, 0, -90, 8, 7, 2, 0, 1, "CALLE LUNA", C.white)
-	signPost(s, "NameSignW", -90, 0, -40, 8, 7, 2, 1, 0, "CALLE SOL", C.white)
-	signPost(s, "NameSignE", 90, 0, 40, 8, 7, 2, -1, 0, "CALLE ESTRELLA", C.white)
+	signPost(s, "DirSignA", 22, 0, 122, 9, 9, 2.2, 0, -1, "PARQUEADERO v", C.cyan)
+	signPost(s, "DirSignB", 22, 0, 122.9, 9, 9, 2.2, 0, 1, "MAYA CLUB ^", C.magenta)
+	signPost(s, "NameSignS", -124, 0, 120, 8, 8, 2, 0, -1, "AV. MAYA", C.white)
+	signPost(s, "NameSignN", 124, 0, -120, 8, 8, 2, 0, 1, "CALLE LUNA", C.white)
+	signPost(s, "NameSignW", -120, 0, -60, 8, 8, 2, 1, 0, "CALLE SOL", C.white)
+	signPost(s, "NameSignE", 120, 0, 60, 8, 8, 2, -1, 0, "CALLE ESTRELLA", C.white)
 	-- aviso de paso de peatones a ambos lados de cada cruce, mirando al trafico
-	for i, c in { { -9, 64.5, -1, 0 }, { 9, 64.5, 1, 0 }, { -9, -64.5, -1, 0 }, { 9, -64.5, 1, 0 }, { -64.5, -9, 0, -1 }, { -64.5, 9, 0, 1 }, { 64.5, -9, 0, -1 }, { 64.5, 9, 0, 1 } } do
+	for i, c in { { -9, 94.5, -1, 0 }, { 9, 94.5, 1, 0 }, { -9, -94.5, -1, 0 }, { 9, -94.5, 1, 0 }, { -94.5, -9, 0, -1 }, { -94.5, 9, 0, 1 }, { 94.5, -9, 0, -1 }, { 94.5, 9, 0, 1 } } do
 		signPost(s, "PedSign" .. i, c[1], 0, c[2], 7, 4, 2, c[3], c[4], "PEATONES", C.cyan)
 	end
 
-	-- iluminacion: farolas con luz real (alcance 48) en el parqueadero, las aceras exteriores y la plaza
-	for _, z in { 112, 136 } do
-		for _, x in { -52, -20, 20, 52 } do
+	-- iluminacion: farolas con luz real (alcance 48) en el parqueadero, aceras exteriores y plaza
+	for _, z in { 148, 176 } do
+		for _, x in { -68, -28, 28, 68 } do
 			streetLamp(pk, "LotLamp", x, LOT_Y, z, 48)
 		end
 	end
-	for _, x in { -88, 88 } do
-		for _, z in { 104, 134, 150 } do
+	for _, x in { -124, 124 } do
+		for _, z in { 142, 166, 190 } do
 			streetLamp(pk, "LotSideLamp", x, LOT_Y, z, 48)
 		end
 	end
-	for _, x in { -60, 0, 60 } do
-		streetLamp(s, "RingLamp", x, 0, -92, 48)
+	for _, x in { -90, -45, 0, 45, 90 } do
+		streetLamp(s, "RingLamp", x, 0, -122, 48)
 	end
-	for _, x in { -45, 45 } do
-		streetLamp(s, "RingLamp", x, 0, 92, 48)
+	for _, x in { -75, -40, 40, 75 } do
+		streetLamp(s, "RingLamp", x, 0, 122, 48)
 	end
-	for _, z in { -45, 45 } do
-		streetLamp(s, "RingLamp", -92, 0, z, 48)
-		streetLamp(s, "RingLamp", 92, 0, z, 48)
+	for _, z in { -80, -40, 40, 80 } do
+		streetLamp(s, "RingLamp", -122, 0, z, 48)
+		streetLamp(s, "RingLamp", 122, 0, z, 48)
 	end
-	for _, x in { -24, 24 } do
-		streetLamp(s, "PlazaLamp", x, 0, 60, 40)
+	for _, x in { -60, -32, 32, 60 } do
+		streetLamp(s, "PlazaLamp", x, 0, 90, 44)
+	end
+	for _, x in { -40, 40 } do
+		streetLamp(s, "PlazaLampN", x, 0, -90, 44)
+	end
+	for _, z in { -40, 40 } do
+		streetLamp(s, "PlazaLampW", -90, 0, z, 44)
+		streetLamp(s, "PlazaLampE", 90, 0, z, 44)
 	end
 
-	-- arbolado y seto al fondo del parqueadero, y calabazas de bienvenida en el camino peatonal
-	for i, x in { -84, -60, -36, -12, 12, 36, 60, 84 } do
-		cyl(pk, "TreeTrunk" .. i, x, LOT_Y + 2.5, 153, 5, 0.9, C.wood, M.Wood)
-		ball(pk, "TreeCrown" .. i, x, LOT_Y + 7.5, 153, 7, C.green, M.Grass, DECOR)
+	-- vegetacion y paisajismo: arboles en las aceras exteriores, seto y arboles al fondo del parqueadero
+	for i, x in { -112, -67, -22, 22, 67, 112 } do
+		tree(s, "TreeN" .. i, x, 0, -124, 1)
 	end
-	B(pk, "HedgeL", -96, LOT_Y, 151, -18, 1.4, 154, C.green, M.Grass)
-	B(pk, "HedgeR", 18, LOT_Y, 151, 96, 1.4, 154, C.green, M.Grass)
+	for i, z in { -100, -60, -20, 20, 60, 100 } do
+		tree(s, "TreeW" .. i, -124, 0, z, 1)
+		tree(s, "TreeE" .. i, 124, 0, z, 1)
+	end
+	for i, x in { -112, -88, -64, -40, -16, 16, 40, 64, 88, 112 } do
+		tree(pk, "LotTree" .. i, x, LOT_Y, 202, 1.1)
+	end
+	B(pk, "HedgeL", -126, LOT_Y, 198.4, -22, 1.6, 200.4, C.green, M.Grass)
+	B(pk, "HedgeR", 22, LOT_Y, 198.4, 126, 1.6, 200.4, C.green, M.Grass)
+	-- macizos de flores (naranja/morado, a juego con Halloween) junto al camino peatonal
+	for i, fz in { 197, 197 } do
+		local sx = (i == 1) and -1 or 1
+		B(pk, "FlowerBed" .. i, sx * 8 - 4, LOT_Y, 197.2, sx * 8 + 4, 0.8, 199.8, Color3.fromRGB(70, 48, 36), M.Wood)
+		for k = 0, 4 do
+			ball(pk, "Flower" .. i .. k, sx * 8 - 3.2 + k * 1.6, 1.1, 198.5, 1.1, (k % 2 == 0) and C.orange or C.purple, M.SmoothPlastic, DECOR)
+		end
+	end
 	for i, sx in { -1, 1 } do
-		pumpkin(pk, "LotPumpkin" .. i, sx * 3.2, 0, 100, math.pi, 0.5, { mini = true })
+		pumpkin(pk, "LotPumpkin" .. i, sx * 3.2, 0, 130, math.pi, 0.5, { mini = true })
 	end
 
 	------------------------------------------------------------------
 	-- Perimetro: muro visible de 10 con pilares y neon, mas barrera invisible hasta y = 70
 	------------------------------------------------------------------
 	local WALLC = Color3.fromRGB(26, 20, 38)
-	B(pr, "PerimeterWall_N", -100, -4, -100, 100, 10, WORLD.z1, WALLC, M.Concrete)
-	B(pr, "PerimeterWall_S", -100, -4, WORLD.z2, 100, 10, 158, WALLC, M.Concrete)
-	B(pr, "PerimeterWall_W", -100, -4, WORLD.z1, WORLD.x1, 10, WORLD.z2, WALLC, M.Concrete)
-	B(pr, "PerimeterWall_E", WORLD.x2, -4, WORLD.z1, 100, 10, WORLD.z2, WALLC, M.Concrete)
+	B(pr, "PerimeterWall_N", -130, -4, -130, 130, 10, WORLD.z1, WALLC, M.Concrete)
+	B(pr, "PerimeterWall_S", -130, -4, WORLD.z2, 130, 10, 208, WALLC, M.Concrete)
+	B(pr, "PerimeterWall_W", -130, -4, WORLD.z1, WORLD.x1, 10, WORLD.z2, WALLC, M.Concrete)
+	B(pr, "PerimeterWall_E", WORLD.x2, -4, WORLD.z1, 130, 10, WORLD.z2, WALLC, M.Concrete)
 	glow(pr, "PerimeterLed_N", WORLD.x1, 8.6, WORLD.z1, WORLD.x2, 8.9, WORLD.z1 + 0.15, C.purple)
 	glow(pr, "PerimeterLed_S", WORLD.x1, 8.6, WORLD.z2 - 0.15, WORLD.x2, 8.9, WORLD.z2, C.purple)
 	glow(pr, "PerimeterLed_W", WORLD.x1, 8.6, WORLD.z1, WORLD.x1 + 0.15, 8.9, WORLD.z2, C.purple)
 	glow(pr, "PerimeterLed_E", WORLD.x2 - 0.15, 8.6, WORLD.z1, WORLD.x2, 8.9, WORLD.z2, C.purple)
-	for i = 0, 8 do
-		local x = -96 + i * 24
+	for i = 0, 7 do
+		local x = -112 + i * 32
 		B(pr, "PillarN", x - 1.2, 0, WORLD.z1, x + 1.2, 11, WORLD.z1 + 2.4, C.dark, M.Concrete)
 		glow(pr, "PillarNCap", x - 1.2, 11, WORLD.z1, x + 1.2, 11.3, WORLD.z1 + 2.4, C.orange)
 		B(pr, "PillarS", x - 1.2, 0, WORLD.z2 - 2.4, x + 1.2, 11, WORLD.z2, C.dark, M.Concrete)
 		glow(pr, "PillarSCap", x - 1.2, 11, WORLD.z2 - 2.4, x + 1.2, 11.3, WORLD.z2, C.orange)
 	end
 	for i = 0, 9 do
-		local z = -86 + i * 24
+		local z = -112 + i * 32
 		B(pr, "PillarW", WORLD.x1, 0, z - 1.2, WORLD.x1 + 2.4, 11, z + 1.2, C.dark, M.Concrete)
 		glow(pr, "PillarWCap", WORLD.x1, 11, z - 1.2, WORLD.x1 + 2.4, 11.3, z + 1.2, C.orange)
 		B(pr, "PillarE", WORLD.x2 - 2.4, 0, z - 1.2, WORLD.x2, 11, z + 1.2, C.dark, M.Concrete)
@@ -1296,53 +1581,74 @@ local function buildWorld()
 	end
 	if CONFIG.Boundary then
 		local inv = { Transparency = 1, CastShadow = false }
-		B(pr, "Boundary_N", -100, 10, -100, 100, 70, WORLD.z1, C.black, M.SmoothPlastic, inv)
-		B(pr, "Boundary_S", -100, 10, WORLD.z2, 100, 70, 158, C.black, M.SmoothPlastic, inv)
-		B(pr, "Boundary_W", -100, 10, WORLD.z1, WORLD.x1, 70, WORLD.z2, C.black, M.SmoothPlastic, inv)
-		B(pr, "Boundary_E", WORLD.x2, 10, WORLD.z1, 100, 70, WORLD.z2, C.black, M.SmoothPlastic, inv)
+		B(pr, "Boundary_N", -130, 10, -130, 130, 70, WORLD.z1, C.black, M.SmoothPlastic, inv)
+		B(pr, "Boundary_S", -130, 10, WORLD.z2, 130, 70, 208, C.black, M.SmoothPlastic, inv)
+		B(pr, "Boundary_W", -130, 10, WORLD.z1, WORLD.x1, 70, WORLD.z2, C.black, M.SmoothPlastic, inv)
+		B(pr, "Boundary_E", WORLD.x2, 10, WORLD.z1, 130, 70, WORLD.z2, C.black, M.SmoothPlastic, inv)
 	end
 end
 
 ------------------------------------------------------------------------
--- Exterior y estructura
+-- Estructura y fachada (edificio de 160 x 160 con puerta de 20 x 12 al sur)
 ------------------------------------------------------------------------
+local function palm(parent, name, x, z)
+	cyl(parent, name .. "_Pot", x, 1.25, z, 2.5, 3.2, C.dark, M.Concrete)
+	cyl(parent, name .. "_Trunk", x, 5.5, z, 6, 0.7, C.wood, M.Wood, DECOR)
+	for i = 1, 3 do
+		ball(parent, name .. "_Leaf" .. i, x + (i - 2) * 1.6, 9 + (i % 2) * 0.8, z + (i - 2) * 0.8, 4.2, C.green, M.Grass, DECOR)
+	end
+end
+
 local function buildShell()
 	local e = folders.Exterior
-	-- paredes del piso 1 (entrada al sur: hueco de 14 x 11)
 	local f1 = folders.Floor1
-	B(f1, "Wall_N", -50, 0, -50, 50, FLOOR_H, -48, C.wall, M.Concrete)
-	B(f1, "Wall_W", -50, 0, -48, -48, FLOOR_H, 48, C.wall, M.Concrete)
-	B(f1, "Wall_E", 48, 0, -48, 50, FLOOR_H, 48, C.wall, M.Concrete)
-	B(f1, "Wall_S_L", -50, 0, 48, -7, FLOOR_H, 50, C.wall, M.Concrete)
-	B(f1, "Wall_S_R", 7, 0, 48, 50, FLOOR_H, 50, C.wall, M.Concrete)
-	B(f1, "Wall_S_Top", -7, 11, 48, 7, FLOOR_H, 50, C.wall, M.Concrete)
-
-	-- pared del piso 2 (ventanales salvo el norte)
 	local f2 = folders.Floor2
 	local y2 = FLOOR_Y[2]
-	B(f2, "Wall_N", -50, y2, -50, 50, y2 + FLOOR_H, -48, C.wall, M.Concrete)
-	glassWall(f2, "Glass_W", -50, -48, -48, 48, y2)
-	glassWall(f2, "Glass_E", 48, -48, 50, 48, y2)
-	glassWall(f2, "Glass_S", -50, 48, 50, 50, y2)
 
-	-- arco neon de la puerta
-	glow(e, "Door_L", -7.6, 0, 50, -7, 11.6, 50.5, C.magenta, { cycle = true, light = 24 })
-	glow(e, "Door_R", 7, 0, 50, 7.6, 11.6, 50.5, C.magenta, { cycle = true, light = 24, phase = 1 })
-	glow(e, "Door_Top", -7.6, 11, 50, 7.6, 11.6, 50.5, C.cyan, { cycle = true })
+	-- paredes del piso 1 (puerta de 20 de ancho y 12 de alto en el sur)
+	B(f1, "Wall_N", -80, 0, -80, 80, FLOOR_H, -78, C.wall, M.Concrete)
+	B(f1, "Wall_W", -80, 0, -78, -78, FLOOR_H, 78, C.wall, M.Concrete)
+	B(f1, "Wall_E", 78, 0, -78, 80, FLOOR_H, 78, C.wall, M.Concrete)
+	B(f1, "Wall_S_L", -80, 0, 78, -10, FLOOR_H, 80, C.wall, M.Concrete)
+	B(f1, "Wall_S_R", 10, 0, 78, 80, FLOOR_H, 80, C.wall, M.Concrete)
+	B(f1, "Wall_S_Top", -10, 12, 78, 10, FLOOR_H, 80, C.wall, M.Concrete)
 
+	-- pared del piso 2 (ventanales salvo el norte)
+	B(f2, "Wall_N", -80, y2, -80, 80, y2 + FLOOR_H, -78, C.wall, M.Concrete)
+	glassWall(f2, "Glass_W", -80, -78, -78, 78, y2)
+	glassWall(f2, "Glass_E", 78, -78, 80, 78, y2)
+	glassWall(f2, "Glass_S", -80, 78, 80, 80, y2)
+
+	-- arco neon de la puerta (violeta/cian de la marca) y detalles naranja de Halloween
+	glow(e, "Door_L", -10.6, 0, 80, -10, 12.6, 80.5, VIOLET, { cycle = true, light = 26 })
+	glow(e, "Door_R", 10, 0, 80, 10.6, 12.6, 80.5, VIOLET, { cycle = true, light = 26, phase = 1 })
+	glow(e, "Door_Top", -10.6, 12, 80, 10.6, 12.6, 80.5, C.cyan, { cycle = true })
+	glow(e, "DoorAccentL", -10, 0, 80.2, -9.85, 12, 80.5, C.orange)
+	glow(e, "DoorAccentR", 9.85, 0, 80.2, 10, 12, 80.5, C.orange)
+	glow(e, "DoorAccentT", -10, 11.85, 80.2, 10, 12, 80.5, C.orange)
 	-- cantos verticales de neon en las 4 esquinas
-	for i, c in { { -50.3, -50.3 }, { 50.3, -50.3 }, { -50.3, 50.3 }, { 50.3, 50.3 } } do
-		glow(e, "Corner" .. i, c[1] - 0.2, 0, c[2] - 0.2, c[1] + 0.2, FLOOR_Y[3], c[2] + 0.2, C.purple, { cycle = true, phase = i })
+	for i, c in { { -80.3, -80.3 }, { 80.3, -80.3 }, { -80.3, 80.3 }, { 80.3, 80.3 } } do
+		glow(e, "Corner" .. i, c[1] - 0.2, 0, c[2] - 0.2, c[1] + 0.2, FLOOR_Y[3], c[2] + 0.2, VIOLET, { cycle = true, phase = i })
 	end
 
-	sign(e, "MainSign", 0, 17, 50.3, 36, 7, 0, 1, "AURA CLUB", C.cyan, true)
-	glow(e, "MainSignFrameT", -18.4, 20.5, 50.2, 18.4, 20.9, 50.5, C.magenta, { cycle = true })
-	glow(e, "MainSignFrameB", -18.4, 13.1, 50.2, 18.4, 13.5, 50.5, C.magenta, { cycle = true })
+	-- letrero de la entrada: placa oscura con texto cromado MAYA CLUB y marco de neon
+	sign(e, "MainSign", 0, 18.5, 80.3, 56, 9, 0, 1, "MAYA CLUB", SILVER, false, "chrome", CONFIG.LogoImageId)
+	glow(e, "MainSignFrameT", -28.4, 23, 80.2, 28.4, 23.4, 80.5, VIOLET, { cycle = true })
+	glow(e, "MainSignFrameB", -28.4, 13.6, 80.2, 28.4, 14, 80.5, C.cyan, { cycle = true })
+	glow(e, "MainSignFrameL", -28.4, 13.6, 80.2, -28, 23.4, 80.5, VIOLET, { cycle = true })
+	glow(e, "MainSignFrameR", 28, 13.6, 80.2, 28.4, 23.4, 80.5, VIOLET, { cycle = true })
+	-- fachada: panel oscuro con el monograma grande sobre el ventanal del piso 2
+	B(e, "FacadeBanner", -18, 26.5, 80, 18, 46, 80.5, NAVY, M.Metal, DECOR)
+	glow(e, "FacadeBannerT", -18, 45.8, 80.2, 18, 46, 80.6, VIOLET, { cycle = true, phase = 2 })
+	glow(e, "FacadeBannerB", -18, 26.5, 80.2, 18, 26.7, 80.6, C.cyan, { cycle = true })
+	glow(e, "FacadeBannerL", -18, 26.5, 80.2, -17.8, 46, 80.6, VIOLET, { cycle = true, phase = 1 })
+	glow(e, "FacadeBannerR", 17.8, 26.5, 80.2, 18, 46, 80.6, VIOLET, { cycle = true, phase = 1 })
+	wallMonogram(e, "FacadeMono", 0, 28, 80.5, 0, 1, 0.44)
 
-	-- cola de entrada: postes dorados y cuerdas de terciopelo
-	for _, sx in { -6, 6 } do
+	-- plaza de entrada: cola con postes dorados y cuerdas, macetas y calabazas de bienvenida
+	for _, sx in { -8, 8 } do
 		for k = 0, 2 do
-			local z = 54 + k * 5
+			local z = 84 + k * 5
 			cyl(e, "Post", sx, 1.5, z, 3, 0.6, C.gold, M.Metal)
 			ball(e, "PostTop", sx, 3.1, z, 0.9, C.gold, M.Metal)
 			if k < 2 then
@@ -1350,74 +1656,114 @@ local function buildShell()
 			end
 		end
 	end
-	for _, sx in { -16, 16 } do
-		B(e, "Planter", sx - 1.5, 0, 52, sx + 1.5, 2.5, 55, C.dark, M.Concrete)
-		ball(e, "PlanterLeaf", sx, 4.2, 53.5, 4, C.green, M.Grass)
+	for _, sx in { -24, 24 } do
+		B(e, "Planter", sx - 1.5, 0, 82, sx + 1.5, 2.5, 85, C.dark, M.Concrete)
+		ball(e, "PlanterLeaf", sx, 4.2, 83.5, 4, C.green, M.Grass)
 	end
-
-	-- Halloween en la entrada: calabazas, acentos naranja en la puerta y guirnalda
 	for i, sx in { -1, 1 } do
-		pumpkin(e, "EntrancePumpkin" .. i, sx * 9.2, 0, 51.45, math.pi, 1.3, { light = true, range = 18 })
+		pumpkin(e, "EntrancePumpkin" .. i, sx * 15, 0, 81.7, math.pi, 1.5, { light = true, range = 20 })
 	end
-	glow(e, "DoorAccentL", -7, 0, 50.2, -6.85, 11, 50.5, C.orange)
-	glow(e, "DoorAccentR", 6.85, 0, 50.2, 7, 11, 50.5, C.orange)
-	glow(e, "DoorAccentT", -7, 10.85, 50.2, 7, 11, 50.5, C.orange)
-	garland(e, "DoorGarland", Vector3.new(-13, 11.4, 50.22), Vector3.new(13, 11.4, 50.22), 2, 16, Vector3.new(0, 0, 0.8))
+	garland(e, "DoorGarland", Vector3.new(-18, 12.6, 80.22), Vector3.new(18, 12.6, 80.22), 2.2, 20, Vector3.new(0, 0, 0.8))
 end
 
 ------------------------------------------------------------------------
--- PISO 1
+-- barra larga con vasos de cristal (sd = -1 oeste, 1 este). Clientes hacia la pista.
+------------------------------------------------------------------------
+local function buildBar(f, sd)
+	local tag = (sd < 0) and "BarW" or "BarE"
+	B(f, tag .. "Back", sd < 0 and -78 or 76, 0, -50, sd < 0 and -76 or 78, 6, -10, C.dark, M.Concrete)
+	bottleShelf(f, tag .. "Shelf", sd < 0 and -78 or 76, 0, -50, -10, 2, 6)
+	barCounter(f, tag, math.min(sd * 68, sd * 71), -50, math.max(sd * 68, sd * 71), -10, 0, sd < 0 and "E" or "W", C.magenta)
+	for k = 0, 8 do
+		stool(f, tag .. "Stool" .. k, sd * 64, 0, -46 + k * 5)
+	end
+	sign(f, tag .. "Sign", sd * 77.75, 17, -30, 18, 4, -sd, 0, "BAR", C.magenta, true)
+
+	-- cristaleria, bandeja de chupitos, caldero y calabaza (superficie y = 4.5)
+	local bx, by = sd * 69.5, 4.5
+	pumpkin(f, tag .. "Pumpkin", bx, by, -48.6, sd * math.pi / 2, 0.7, { mini = true })
+	local kinds = { "highball", "martini", "tumbler", "highball", "tumbler", "martini" }
+	local liqs = { LIQUIDS.orange, LIQUIDS.green, LIQUIDS.purple, LIQUIDS.pink, LIQUIDS.cyan, LIQUIDS.orange }
+	local off = (sd > 0) and 2 or 0
+	for i = 1, 6 do
+		local z = -44 + (i - 1) * 4.5
+		local j = (i + off - 1) % 6 + 1
+		glassware(f, tag .. "Glass" .. i, bx, by, z, kinds[j], liqs[j], {
+			coaster = true,
+			glow = (i % 2 == 0) and VIOLET or C.orange,
+			straw = (i % 3 == 1) and C.white or ((i % 3 == 2) and C.orange or nil),
+			garnish = (i % 3 == 0),
+		})
+	end
+	shotTray(f, tag .. "Shots", bx, by, -16.5, true)
+	cauldron(f, tag .. "Cauldron", bx, by, -11.8)
+	garland(f, tag .. "Garland", Vector3.new(sd * 77.78, 20.6, -50), Vector3.new(sd * 77.78, 20.6, -10), 1.2, 16, Vector3.new(-sd * 0.55, 0, 0))
+	cobweb(f, tag .. "Web", Vector3.new(sd * 77.95, 21.95, -10), Vector3.new(0, 0, -1), Vector3.new(0, -1, 0), 6)
+end
+
+------------------------------------------------------------------------
+-- PISO 1: hall, pista LED, escenario DJ, 2 barras, booths y lobby
 ------------------------------------------------------------------------
 local function buildFloor1()
 	local f = folders.Floor1
-	B(f, "Floor1_Slab", -50, -3, -50, 50, 0, 50, C.floor, M.Marble, { Reflectance = 0.12 })
+	local D, St = LAYOUT.dance, LAYOUT.stage
+	B(f, "Floor1_Slab", -80, -3, -80, 80, 0, 80, C.floor, M.Marble, { Reflectance = 0.12 })
+	B(f, "Carpet", -6, 0, 10, 6, 0.1, 78, C.velvet, M.Fabric, DECOR)
 
-	-- alfombra del hall
-	B(f, "Carpet", -4, 0, 28, 4, 0.1, 48, C.velvet, M.Fabric)
-
-	-- pista LED
+	-- PISTA LED: base oscura reflectante, juntas de 0.5, paneles de neon de brillo moderado en
+	-- damero (la mitad mas tenue), cristal ahumado encima y bisel metalico con hilo de neon
 	local n = CONFIG.TileCount
-	local size = 48 / n
+	local cell = (D.x2 - D.x1) / n
+	B(f, "DanceBase", D.x1, 0, D.z1, D.x2, 0.1, D.z2, Color3.fromRGB(10, 8, 20), M.Marble, { Reflectance = 0.3 })
 	for ix = 0, n - 1 do
 		for iz = 0, n - 1 do
-			local x1 = -24 + ix * size
-			local z1 = -34 + iz * size
-			local tile = B(f, "Tile", x1 + 0.1, 0, z1 + 0.1, x1 + size - 0.1, 0.2, z1 + size - 0.1, C.cyan, M.Neon, { CastShadow = false })
-			table.insert(fx.tiles, { part = tile, ix = ix, iz = iz })
+			local x1, z1 = D.x1 + ix * cell, D.z1 + iz * cell
+			local tile = B(f, "Tile", x1 + 0.25, 0.1, z1 + 0.25, x1 + cell - 0.25, 0.22, z1 + cell - 0.25, Color3.fromRGB(16, 92, 104), M.Neon, { CastShadow = false })
+			table.insert(fx.tiles, { part = tile, ix = ix, iz = iz, n = n, dim = ((ix + iz) % 2 == 0) and 1 or 0.6 })
 		end
 	end
-
-	-- cristal pulido sobre la pista (reflejos), sin colision
-	B(f, "LedGlass", -24, 0.2, -34, 24, 0.28, 14, C.white, M.Glass, { Transparency = 0.8, Reflectance = 0.25, CanCollide = false, CastShadow = false })
-
-	-- escenario DJ (norte) con 3 escalones de acceso
-	B(f, "Stage", -18, 0, -46.5, 18, 3, -37, C.black, M.SmoothPlastic)
-	B(f, "StageStepB", -6, 0, -37, 6, 2, -36, C.black, M.SmoothPlastic)
-	B(f, "StageStepA", -6, 0, -36, 6, 1, -35, C.black, M.SmoothPlastic)
-	glow(f, "StageTrim", -18, 0.8, -37.15, 18, 1.3, -37, C.magenta, { cycle = true, light = 18 })
-	djDeck(f, "DJ1", 0, 3, -42, C.cyan)
-	haze(f, "StageHazeL", -10, 3.2, -38.5, 14)
-	haze(f, "StageHazeR", 10, 3.2, -38.5, 14)
-	flownArray(f, "FlownL", -16.5, -43, 21.5, 7)
-	flownArray(f, "FlownR", 16.5, -43, 21.5, 7)
-
-	-- pantalla LED gigante
-	local _, label = sign(f, "DJScreen", 0, 13, -47.75, 40, 14, 0, 1, "AURA", C.cyan, false)
-	table.insert(fx.screens, label)
-	glow(f, "ScreenFrameT", -20.4, 20, -47.7, 20.4, 20.5, -47.2, C.purple, { cycle = true })
-	glow(f, "ScreenFrameB", -20.4, 5.5, -47.7, 20.4, 6, -47.2, C.purple, { cycle = true })
-
-	-- altavoces (el de la izquierda lleva el Sound)
-	speaker(f, "Speaker_L", -22, 0, -43, 12, true)
-	speaker(f, "Speaker_R", 22, 0, -43, 12, false)
-
-	-- truss del escenario con focos y estrobos
-	truss(f, "StageTruss", -20, -40, 20, -40, 20.6)
-	for i, x in { -19, 0, 19 } do
-		B(f, "StageHanger" .. i, x - 0.1, 21.2, -40.1, x + 0.1, FLOOR_H, -39.9, C.dark, M.Metal, DECOR)
+	B(f, "LedGlass", D.x1, 0.22, D.z1, D.x2, 0.28, D.z2, Color3.fromRGB(22, 18, 38), M.Glass, { Transparency = 0.5, Reflectance = 0.35, CanCollide = false, CastShadow = false })
+	local bez = {
+		{ D.x1 - 1.5, D.z1 - 1.5, D.x2 + 1.5, D.z1 - 0.5 },
+		{ D.x1 - 1.5, D.z2 + 0.5, D.x2 + 1.5, D.z2 + 1.5 },
+		{ D.x1 - 1.5, D.z1 - 0.5, D.x1 - 0.5, D.z2 + 0.5 },
+		{ D.x2 + 0.5, D.z1 - 0.5, D.x2 + 1.5, D.z2 + 0.5 },
+	}
+	for i, r in bez do
+		B(f, "DanceBezel" .. i, r[1], 0, r[2], r[3], 0.3, r[4], C.dark, M.Metal, DECOR)
 	end
-	for i, x in { -16, -8, 0, 8, 16 } do
-		glow(f, "StageSpot" .. i, x - 0.6, 19, -40.6, x + 0.6, 20, -39.4, C.magenta, {
+	glow(f, "DanceLedN", D.x1 - 0.5, 0.1, D.z1 - 0.5, D.x2 + 0.5, 0.25, D.z1 - 0.35, C.cyan, { cycle = true })
+	glow(f, "DanceLedS", D.x1 - 0.5, 0.1, D.z2 + 0.35, D.x2 + 0.5, 0.25, D.z2 + 0.5, C.cyan, { cycle = true })
+	glow(f, "DanceLedW", D.x1 - 0.5, 0.1, D.z1 - 0.35, D.x1 - 0.35, 0.25, D.z2 + 0.35, VIOLET, { cycle = true })
+	glow(f, "DanceLedE", D.x2 + 0.35, 0.1, D.z1 - 0.35, D.x2 + 0.5, 0.25, D.z2 + 0.35, VIOLET, { cycle = true })
+
+	-- ESCENARIO DJ (norte) con 2 escalones de acceso y pantalla LED
+	B(f, "Stage", St.x1, 0, St.z1, St.x2, St.top, St.z2, C.black, M.SmoothPlastic)
+	B(f, "StageStepB", -8, 0, -64, 8, 2.2, -62, C.black, M.SmoothPlastic)
+	B(f, "StageStepA", -8, 0, -62, 8, 1.1, -60.5, C.black, M.SmoothPlastic)
+	glow(f, "StageTrim", St.x1, 0.8, -64.15, St.x2, 1.3, -64, VIOLET, { cycle = true, light = 22 })
+	djDeck(f, "DJ1", 0, St.top, -72, C.cyan)
+	sign(f, "DJFront", 0, St.top + 1.75, -70.75, 11, 2.4, 0, 1, "MAYA", SILVER, false, "chrome")
+	local _, screen = sign(f, "DJScreen", 0, 14, -77.75, 44, 14, 0, 1, "MAYA", C.cyan, false)
+	table.insert(fx.screens, screen)
+	glow(f, "ScreenFrameT", -22.4, 21, -77.7, 22.4, 21.5, -77.2, VIOLET, { cycle = true })
+	glow(f, "ScreenFrameB", -22.4, 6.5, -77.7, 22.4, 7, -77.2, VIOLET, { cycle = true })
+	wallMonogram(f, "StageMonoL", -36, 4.5, -78, 0, 1, 0.4)
+	wallMonogram(f, "StageMonoR", 36, 4.5, -78, 0, 1, 0.4)
+	speaker(f, "Speaker_L", -50, 0, -72, 12, true)
+	speaker(f, "Speaker_R", 50, 0, -72, 12, false)
+	flownArray(f, "FlownL", -44, -70, 21.5, 7)
+	flownArray(f, "FlownR", 44, -70, 21.5, 7)
+	haze(f, "StageHazeL", -16, 3.5, -66.5, 16)
+	haze(f, "StageHazeR", 16, 3.5, -66.5, 16)
+
+	-- truss del escenario con 7 focos (conos de luz translucidos y sombras) y 6 estrobos
+	truss(f, "StageTruss", -32, -69, 32, -69, 20.6)
+	for i, x in { -30, 0, 30 } do
+		B(f, "StageHanger" .. i, x - 0.1, 21.2, -69.1, x + 0.1, FLOOR_H, -68.9, C.dark, M.Metal, DECOR)
+	end
+	for i, x in { -24, -16, -8, 0, 8, 16, 24 } do
+		glow(f, "StageSpot" .. i, x - 0.6, 19, -69.6, x + 0.6, 20, -68.4, VIOLET, {
 			cycle = true,
 			phase = i,
 			light = 36,
@@ -1427,18 +1773,16 @@ local function buildFloor1()
 			shaft = { 16, 0.5, 5 },
 		})
 	end
-	for i, x in { -12, -4, 4, 12 } do
-		addStrobe(f, "Strobe" .. i, x - 1.5, 19.2, -40.4, x + 1.5, 20, -39.6)
+	for i, x in { -20, -12, -4, 4, 12, 20 } do
+		addStrobe(f, "Strobe" .. i, x - 1.5, 19.2, -69.4, x + 1.5, 20, -68.6)
 	end
 
-
 	-- bola de espejos colgada del techo del atrio (gira lento)
-	local mc = Vector3.new(0, 36, -10)
+	local mc = Vector3.new(0, 36, -24)
 	B(f, "MirrorRod", mc.X - 0.15, mc.Y + 3, mc.Z - 0.15, mc.X + 0.15, FLOOR_Y[3] - 2, mc.Z + 0.15, C.dark, M.Metal, DECOR)
 	local core = ball(f, "MirrorCore", mc.X, mc.Y, mc.Z, 6, C.dark, M.Metal, { Reflectance = 0.6 })
 	addLight(core, C.white, 40, false, 2)
-	local rings = { { -60, 6 }, { -30, 10 }, { 0, 12 }, { 30, 10 }, { 60, 6 } }
-	for _, ring in rings do
+	for _, ring in { { -60, 6 }, { -30, 10 }, { 0, 12 }, { 30, 10 }, { 60, 6 } } do
 		local lat = math.rad(ring[1])
 		for k = 0, ring[2] - 1 do
 			local lon = k / ring[2] * math.pi * 2
@@ -1449,18 +1793,16 @@ local function buildFloor1()
 		end
 	end
 
-	-- truss del atrio con 6 lasers (3 por lado)
+	-- truss del atrio con 6 lasers translucidos (3 por lado)
 	for _, side in { -1, 1 } do
-		local x = side * 22
-		truss(f, "AtriumTruss", x, -34, x, -6, 41.3)
-		for _, z in { -33, -7 } do
+		local x = side * 36
+		truss(f, "AtriumTruss", x, -52, x, -4, 41.3)
+		for _, z in { -51, -5 } do
 			B(f, "AtriumRod", x - 0.2, 41.6, z - 0.2, x + 0.2, FLOOR_Y[3] - 2, z + 0.2, C.dark, M.Metal)
 		end
-		for k, z in { -32, -20, -8 } do
-			local colors = { C.cyan, C.magenta, C.purple }
-			local col = colors[k]
+		for k, z in { -48, -28, -8 } do
+			local col = ({ C.cyan, C.magenta, VIOLET })[k]
 			local head = glow(f, "LaserHead", x - 0.8, 39.5, z - 0.8, x + 0.8, 40.7, z + 0.8, col, { light = 10 })
-			-- haz translucido de 3 capas; solo se mueve la punta (un Attachment) en cada tick
 			local tip = laserBeam(head, col)
 			table.insert(fx.beams, {
 				head = head,
@@ -1475,142 +1817,162 @@ local function buildFloor1()
 		end
 	end
 
-	-- barra oeste
-	B(f, "BackBar", -48, 0, -26, -46, 6, 8, C.dark, M.Concrete)
-	bottleShelf(f, "BarShelf", -48, 0, -26, 8, 2, 6)
-	barCounter(f, "Bar1", -43, -26, -40, 6, 0, "E", C.magenta)
-	for k = 0, 5 do
-		stool(f, "BarStool" .. k, -36, 0, -22 + k * 5)
-	end
-	sign(f, "BarSign", -47.75, 17, -9, 14, 4, 1, 0, "BAR", C.magenta, true)
+	-- barras (oeste y este) con cristaleria
+	buildBar(f, -1)
+	buildBar(f, 1)
 
-	-- booths (suroeste): sofas contra la pared oeste + mesa
-	for i, z in { 18, 28, 38 } do
-		sofa(f, "Booth" .. i, -46.2, 0, z, -math.pi / 2, 9, C.velvet, C.magenta)
-		roundTable(f, "BoothTable" .. i, -41.5, 0, z, 1.8, false, C.cyan)
+	-- booths contra la pared oeste (+1 al este) con velas
+	for i, z in { 8, 26, 44 } do
+		sofa(f, "BoothW" .. i, -76.2, 0, z, -math.pi / 2, 9, C.velvet, C.magenta)
+		roundTable(f, "BoothTableW" .. i, -70.5, 0, z, 1.8, false, C.cyan)
+		candleCluster(f, "BoothCandleW" .. i, -70.5, 2.5, z, i == 2)
+	end
+	sofa(f, "BoothE", 76.2, 0, 2, math.pi / 2, 9, C.velvet, C.magenta)
+	roundTable(f, "BoothTableE", 70.5, 0, 2, 1.8, false, C.cyan)
+	candleCluster(f, "BoothCandleE", 70.5, 2.5, 2, false)
+
+	-- mesas altas de pie, bien separadas (>= 12 studs entre mesas): calabazas al este, velas al oeste
+	local ht = 0
+	for _, x in { -56, -28, 28, 56 } do
+		for _, z in { 22, 38 } do
+			ht += 1
+			roundTable(f, "HighTable" .. ht, x, 0, z, 1.6, true, (x < 0) and C.cyan or VIOLET)
+			if x > 0 then
+				pumpkin(f, "TablePumpkin" .. ht, x, 4.5, z, -math.pi / 2, 0.5, { mini = true })
+			else
+				candleCluster(f, "TableCandle" .. ht, x, 4.5, z, false)
+			end
+		end
 	end
 
-	-- mesas altas este de la pista
-	for i, z in { 18, 30, 42 } do
-		roundTable(f, "HighTable" .. i, 31, 0, z, 1.6, true, C.purple)
+	-- lobby: guardarropa y boleteria contra la pared sur, palmeras y monogramas
+	barCounter(f, "CoatCheck", -62, 72, -34, 75, 0, "N", C.cyan)
+	barCounter(f, "TicketDesk", 34, 72, 62, 75, 0, "N", C.cyan)
+	sign(f, "CoatSign", -48, 9, 77.75, 16, 3, 0, -1, "GUARDARROPA", SILVER, false, "chrome")
+	sign(f, "TicketSign", 48, 9, 77.75, 16, 3, 0, -1, "BOLETERIA", SILVER, false, "chrome")
+	for i, x in { -16, 16 } do
+		palm(f, "LobbyPalm" .. i, x, 74)
 	end
-	for i, z in { 22, 34 } do
-		roundTable(f, "HighTableW" .. i, -28, 0, z, 1.6, true, C.cyan)
-	end
+	wallMonogram(f, "LobbyMonoW", -78, 5, 58, 1, 0, 0.42)
+	wallMonogram(f, "LobbyMonoE", 78, 6, 72, -1, 0, 0.36)
+	candleCluster(f, "CoatCandle", -48, 4.5, 73.5, false)
+	pumpkin(f, "TicketPumpkin", 48, 4.5, 73.5, math.pi, 0.6, { mini = true })
 
-	-- escalera P1 -> P2 (este): 10 studs de ancho, se sube hacia el norte.
-	-- Descanso de entrada de 10x10 al sur (z 38..48); el hueco del piso 2 deja >= 7 studs libres.
-	stairs(folders.Stairs, "Stairs1", 38, 48, FLOOR_Y[1], 38, -1)
-	stairRail(folders.Stairs, "Stairs1Rail", 38.15, FLOOR_Y[1], 38, -1)
-	landing(f, "Landing1In", 38, 38, 48, 48, 0)
+	-- escalera P1 -> P2 (este): 10 de ancho, sube al norte. Descanso de entrada 10x14 al sur.
+	local S1 = LAYOUT.s1
+	stairs(folders.Stairs, "Stairs1", S1.x1, S1.x2, S1.baseY, S1.zStart, S1.dir)
+	stairRail(folders.Stairs, "Stairs1Rail", S1.x1 + 0.15, S1.baseY, S1.zStart, S1.dir)
+	landing(f, "Landing1In", S1.landIn[1], S1.landIn[2], S1.landIn[3], S1.landIn[4], 0)
 
-	-- tiras de luz en el techo del hall
-	for i, x in { -14, 14 } do
-		glow(f, "HallStrip" .. i, x - 0.3, 21.6, 18, x + 0.3, 22, 46, C.purple, { cycle = true, phase = i, light = 24 })
-	end
-	glow(f, "StageCeil", -20, 21.6, -46, 20, 22, -45.4, C.cyan, { cycle = true })
-	-- ambiente: neon rosa en el techo del hall, focos empotrados y listones acusticos
-	neonArt(f, "CeilArt1", -46, 17, 46, 47, 21.8, 7, 5, C.magenta)
-	for _, x in { -36, -24, -12, 0, 12, 24, 36 } do
-		for _, z in { 24, 38 } do
+	-- techo del hall: neon rosa, focos empotrados, tiras de luz y listones acusticos
+	neonArt(f, "CeilArt1", -76, 24, 76, 76, 21.8, 7, 7, C.magenta)
+	for i, x in { -60, -30, 0, 30, 60 } do
+		for j, z in { 30, 50, 70 } do
 			downlight(f, "Downlight", x, 21.9, z)
 		end
 	end
-	slats(f, "SlatE", "z", 47.5, -46, -12, 1, 21, 1)
-	slats(f, "SlatNL", "x", -48, -46, -26, 1, 21, 1)
-	slats(f, "SlatNR", "x", -48, 26, 46, 1, 21, 1)
-	slats(f, "SlatW", "z", -48, -46, -28, 1, 21, 1)
-
-	-- Barra: vasos de cristal, bandeja de chupitos, caldero y calabaza (superficie y = 4.5)
-	local bx, by = -41.5, 4.5
-	pumpkin(f, "BarPumpkin", bx, by, -24.8, -math.pi / 2, 0.7, { mini = true })
-	glassware(f, "BarGlass1", bx, by, -21, "highball", LIQUIDS.orange, { coaster = true, glow = C.orange, straw = C.white, garnish = true })
-	glassware(f, "BarGlass2", bx, by, -16.5, "martini", LIQUIDS.green, { coaster = true, glow = C.purple })
-	glassware(f, "BarGlass3", bx, by, -12, "tumbler", LIQUIDS.purple, { coaster = true, glow = C.purple })
-	glassware(f, "BarGlass4", bx, by, -7.5, "highball", LIQUIDS.pink, { coaster = true, glow = C.orange, straw = C.orange })
-	glassware(f, "BarGlass5", bx, by, -3.5, "tumbler", LIQUIDS.cyan, { coaster = true, glow = C.orange, garnish = true })
-	shotTray(f, "BarShots", bx, by, 0.8, true)
-	cauldron(f, "BarCauldron", bx, by, 4.9)
-	garland(f, "BarGarland", Vector3.new(-47.78, 20.6, -26), Vector3.new(-47.78, 20.6, 8), 1.1, 14, Vector3.new(0.55, 0, 0))
+	for i, x in { -22, 22 } do
+		glow(f, "HallStrip" .. i, x - 0.3, 21.6, 22, x + 0.3, 22, 76, VIOLET, { cycle = true, phase = i, light = 24 })
+	end
+	glow(f, "StageCeil", -32, 21.6, -75, 32, 22, -74.4, C.cyan, { cycle = true })
+	slats(f, "SlatNL", "x", -78, -76, -46, 1, 21, 1)
+	slats(f, "SlatNR", "x", -78, 46, 76, 1, 21, 1)
+	slats(f, "SlatW", "z", -78, -76, -52, 1, 21, 1)
+	slats(f, "SlatE", "z", 77.5, -76, -52, 1, 21, 1)
 
 	-- Halloween en el hall y la pista (nada sobre la pista ni en los pasos)
-	for i, z in { 18, 30, 42 } do
-		pumpkin(f, "TablePumpkin" .. i, 31, 4.5, z, math.pi / 2, 0.5, { mini = true })
-	end
-	for i, z in { 22, 34 } do
-		candleCluster(f, "TableCandle" .. i, -28, 4.5, z, false)
-	end
-	for i, z in { 18, 28, 38 } do
-		candleCluster(f, "BoothCandle" .. i, -41.5, 2.5, z, i == 2)
-	end
 	for i, sx in { -1, 1 } do
-		pumpkin(f, "StagePumpkin" .. i, sx * 16.5, 3, -38.6, math.pi, 0.9, { light = true, range = 18 })
-		pumpkin(f, "SpeakerPumpkin" .. i, sx * 22, 12, -43, math.pi, 0.8, { mini = true })
+		pumpkin(f, "StagePumpkin" .. i, sx * 31, St.top, -66, math.pi, 0.9, { light = true, range = 18 })
+		pumpkin(f, "SpeakerPumpkin" .. i, sx * 50, 12, -72, math.pi, 0.8, { mini = true })
 	end
 	for _, side in { -1, 1 } do
-		for _, z in { -26, -14 } do
-			local x = side * 22
+		for _, z in { -38, -18 } do
+			local x = side * 36
 			pumpkin(f, "HungPumpkin", x, 36, z, side * math.pi / 2, 1.0, { light = true, range = 16 })
 			B(f, "HungRod", x - 0.05, 38.5, z - 0.05, x + 0.05, 40.7, z + 0.05, C.dark, M.Metal, DECOR)
 		end
 	end
 	local wallBats = {
-		{ 47.1, 14, -18, -1, 0 }, { 47.1, 17.5, -26, -1, 0 }, { 47.1, 13, -34, -1, 0 },
-		{ -36, 15.5, -47.1, 0, 1 }, { -30, 18, -47.1, 0, 1 }, { 36, 16, -47.1, 0, 1 }, { 42, 13.5, -47.1, 0, 1 },
-		{ -47.1, 17, -32, 1, 0 }, { -47.1, 14, -40, 1, 0 },
+		{ 77.1, 14, -60, -1, 0 }, { 77.1, 17.5, -68, -1, 0 }, { 77.1, 12, -56, -1, 0 },
+		{ -66, 15.5, -77.1, 0, 1 }, { -56, 18, -77.1, 0, 1 }, { 56, 16, -77.1, 0, 1 }, { 66, 13.5, -77.1, 0, 1 },
+		{ -77.1, 17, -64, 1, 0 }, { -77.1, 14, -72, 1, 0 },
 	}
 	for i, b in wallBats do
 		wallBat(f, "Bat" .. i, b[1], b[2], b[3], b[4], b[5])
 	end
-	hangBat(f, "AtriumBat1", -12, 42, -22, 46, 0, 1)
-	hangBat(f, "AtriumBat2", 12, 42.5, -6, 46, 0, 1)
-	hangBat(f, "AtriumBat3", 0, 43, 4, 46, 0, 1)
-	cobweb(f, "WebA", Vector3.new(-47.95, 21.95, 46), Vector3.new(0, 0, -1), Vector3.new(0, -1, 0), 6)
-	cobweb(f, "WebB", Vector3.new(47.95, 21.95, 46), Vector3.new(0, 0, -1), Vector3.new(0, -1, 0), 6)
-	cobweb(f, "WebC", Vector3.new(-47.95, 21.95, 8), Vector3.new(0, 0, -1), Vector3.new(0, -1, 0), 5)
-	fillGrid(f, "Fill1", 8, C.purple, 40, 0.9)
-	sign(f, "Floor1Label", 47.75, 16, 24, 10, 3, -1, 0, "LEVEL 1", C.cyan, true)
+	hangBat(f, "AtriumBat1", -20, 42, -40, 46, 0, 1)
+	hangBat(f, "AtriumBat2", 20, 42.5, -14, 46, 0, 1)
+	hangBat(f, "AtriumBat3", 0, 43, 6, 46, 0, 1)
+	cobweb(f, "WebA", Vector3.new(-77.95, 21.95, 76), Vector3.new(0, 0, -1), Vector3.new(0, -1, 0), 6)
+	cobweb(f, "WebB", Vector3.new(77.95, 21.95, 76), Vector3.new(0, 0, -1), Vector3.new(0, -1, 0), 6)
+	cobweb(f, "WebC", Vector3.new(-77.95, 21.95, -76), Vector3.new(0, 0, 1), Vector3.new(0, -1, 0), 6)
+
+	fillGrid(f, "Fill1", 8, VIOLET, 60, 1.0)
+	sign(f, "Floor1Label", 77.75, 16, 40, 10, 3, -1, 0, "NIVEL 1", C.cyan, true)
 end
 
 ------------------------------------------------------------------------
--- PISO 2 (VIP)
+-- PISO 2 (VIP): balcon sobre el atrio, barra VIP y 14 lounges con pasillos anchos
 ------------------------------------------------------------------------
 local function buildFloor2()
 	local f = folders.Floor2
 	local y = FLOOR_Y[2]
-	slab(f, "Floor2_Slab", -50, -50, 50, 50, y, 2, { { -24, -34, 24, 14 }, { 38, -10, 48, 10 } }, Color3.fromRGB(34, 22, 44), M.Marble, { Reflectance = 0.12 })
+	local A, S1, S2 = LAYOUT.atrium, LAYOUT.s1, LAYOUT.s2
+	slab(f, "Floor2_Slab", -80, -80, 80, 80, y, 2, { { A.x1, A.z1, A.x2, A.z2 }, S1.hole }, Color3.fromRGB(34, 22, 44), M.Marble, { Reflectance = 0.12 })
 
-	-- barandillas del balcon sobre la pista y del hueco de la escalera
-	railLoop(f, "AtriumRail", -24, -34, 24, 14, y, C.cyan)
-	rail(f, "S1Rail_W", 38, -10, 38, 10, y, C.magenta)
-	rail(f, "S1Rail_S", 38, 10, 48, 10, y, C.magenta)
-	-- descansos de llegada (escalera 1) y de entrada (escalera 2), 10x10 libres de muebles
-	landing(f, "Landing1Out", 38, -20, 48, -10, y)
-	landing(f, "Landing2In", -48, -48, -38, -38, y)
+	-- barandillas del balcon sobre la pista y del hueco de la escalera 1, y descansos
+	railLoop(f, "AtriumRail", A.x1, A.z1, A.x2, A.z2, y, C.cyan)
+	rail(f, "S1Rail_W", S1.hole[1], S1.hole[2], S1.hole[1], S1.hole[4], y, C.magenta)
+	rail(f, "S1Rail_S", S1.hole[1], S1.hole[4], S1.hole[3], S1.hole[4], y, C.magenta)
+	landing(f, "Landing1Out", S1.landOut[1], S1.landOut[2], S1.landOut[3], S1.landOut[4], y)
+	landing(f, "Landing2In", S2.landIn[1], S2.landIn[2], S2.landIn[3], S2.landIn[4], y)
 
-	-- barra VIP norte
-	B(f, "VIPBackBar", -16, y, -48, 16, y + 6, -46, C.dark, M.Concrete)
+	-- barra VIP norte (a 9 studs del balcon: pasillo principal libre)
+	B(f, "VIPBackBar", -24, y, -78, 24, y + 6, -76.5, C.dark, M.Concrete)
 	for k = 0, 2 do
 		local sy = y + 6 + k * 2.6
-		B(f, "VIPShelf" .. k, -16, sy, -48, 16, sy + 0.3, -45, C.wood, M.Wood)
-		glow(f, "VIPShelfLed" .. k, -16, sy - 0.15, -48, 16, sy, -45, BOTTLES[k + 1], { cycle = true, light = 16 })
-		for n = 0, 7 do
-			cyl(f, "VIPBottle", -14 + n * 4, sy + 1, -46.5, 1.4, 0.6, BOTTLES[(n + k) % #BOTTLES + 1], M.Glass, { CanCollide = false, Transparency = 0.2 })
+		B(f, "VIPShelf" .. k, -24, sy, -78, 24, sy + 0.3, -75.2, C.wood, M.Wood)
+		glow(f, "VIPShelfLed" .. k, -24, sy - 0.15, -78, 24, sy, -75.2, BOTTLES[k + 1], { cycle = true, light = 16 })
+		for nb = 0, 11 do
+			cyl(f, "VIPBottle", -22 + nb * 4, sy + 1, -76.6, 1.4, 0.6, BOTTLES[(nb + k) % #BOTTLES + 1], M.Glass, { CanCollide = false, Transparency = 0.2 })
 		end
 	end
-	barCounter(f, "VIPBar", -14, -44, 14, -41, y, "S", C.gold)
-	for k, x in { -12, -4, 4, 12 } do
-		stool(f, "VIPStool" .. k, x, y, -39.5)
+	barCounter(f, "VIPBar", -22, -73, 22, -70, y, "S", C.gold)
+	for k, x in { -18, -9, 0, 9, 18 } do
+		stool(f, "VIPStool" .. k, x, y, -68.2)
 	end
-	sign(f, "VIPSign", 0, y + 14, -47.75, 22, 6, 0, 1, "V.I.P", C.gold, false)
+	sign(f, "VIPSign", 0, y + 14, -77.75, 24, 6, 0, 1, "V.I.P", C.gold, false)
+	wallMonogram(f, "VipMonoL", -44, y + 4, -78, 0, 1, 0.38)
+	wallMonogram(f, "VipMonoR", 44, y + 4, -78, 0, 1, 0.38)
 
-	-- lounges: mesa + 2 sofas enfrentados
-	-- Lounges compactos (cuerdas a +-4 en X): dejan pasillos de >= 4.5 studs junto a las
-	-- escaleras y los huecos (antes quedaban ~2), y los descansos de 10x10 libres.
-	local lounges = {
-		{ 29.5, -26 }, { 29.5, -9 }, { -29.5, -22 }, { -29.5, -4 },
-		{ -30, 30 }, { 0, 30 }, { 30, 30 },
-	}
+	-- vasos de cristal, bandeja de chupitos y calabazas en la barra VIP (superficie y = 28.5)
+	local vy, vz = y + 4.5, -71.5
+	for i, sx in { -1, 1 } do
+		pumpkin(f, "VipPumpkin" .. i, sx * 21.5, vy, vz, math.pi, 0.6, { mini = true })
+	end
+	local vkinds = { "martini", "highball", "tumbler", "martini", "tumbler", "highball", "martini", "tumbler" }
+	local vliqs = { LIQUIDS.orange, LIQUIDS.purple, LIQUIDS.green, LIQUIDS.pink, LIQUIDS.cyan, LIQUIDS.orange, LIQUIDS.purple, LIQUIDS.green }
+	for i, x in { -19, -15.5, -12, -8.5, 8.5, 12, 15.5, 19 } do
+		glassware(f, "VipGlass" .. i, x, vy, vz, vkinds[i], vliqs[i], {
+			coaster = true,
+			glow = (i % 2 == 0) and VIOLET or C.orange,
+			straw = (vkinds[i] == "highball") and ((i % 2 == 0) and C.white or C.orange) or nil,
+			garnish = (vkinds[i] == "tumbler"),
+		})
+	end
+	shotTray(f, "VipShots", 0, vy, vz, false)
+
+	-- 14 lounges (mesa + 2 sofas + cuerdas a +-4): 8 laterales y 6 al sur, con >= 9 studs entre cuerdas
+	local lounges = {}
+	for _, z in { -36, -12, 12, 36 } do
+		table.insert(lounges, { -55, z })
+		table.insert(lounges, { 55, z })
+	end
+	for _, x in { -28, 0, 28 } do
+		for _, z in { 46, 68 } do
+			table.insert(lounges, { x, z })
+		end
+	end
 	for i, p in lounges do
 		local x, z = p[1], p[2]
 		roundTable(f, "LoungeTable" .. i, x, y, z, 2, false, C.gold)
@@ -1620,57 +1982,42 @@ local function buildFloor2()
 			P(f, "PillowA" .. i, CFrame.new(x + px, y + 2.9, z - 5.7) * CFrame.Angles(0, math.rad(px * 8), 0), Vector3.new(1.4, 1.4, 0.5), C.velvet, M.Fabric, DECOR)
 			P(f, "PillowB" .. i, CFrame.new(x + px, y + 2.9, z + 5.7) * CFrame.Angles(0, math.rad(-px * 8), 0), Vector3.new(1.4, 1.4, 0.5), C.velvet, M.Fabric, DECOR)
 		end
-		-- cuerdas de terciopelo en 3 lados (el sur queda abierto)
 		ropeLine(f, "RopeW" .. i, x - 4, z - 7.5, x - 4, z + 7.5, y)
 		ropeLine(f, "RopeE" .. i, x + 4, z - 7.5, x + 4, z + 7.5, y)
 		ropeLine(f, "RopeN" .. i, x - 4, z - 7.5, x + 4, z - 7.5, y, true, true)
-		candleCluster(f, "LoungeCandle" .. i, x, y + 2.5, z, i <= 4)
-		glow(f, "Chandelier" .. i, x - 3, y + 17, z - 3, x + 3, y + 17.3, z + 3, C.warmWhite, { light = 26, brightness = 1.4 })
+		candleCluster(f, "LoungeCandle" .. i, x, y + 2.5, z, i % 4 == 1)
+		glow(f, "Chandelier" .. i, x - 3, y + 17, z - 3, x + 3, y + 17.3, z + 3, C.warmWhite, { light = (i % 3 == 1) and 26 or nil, brightness = 1.4 })
 		B(f, "ChandelierRod" .. i, x - 0.1, y + 17.3, z - 0.1, x + 0.1, y + FLOOR_H, z + 0.1, C.dark, M.Metal, DECOR)
 	end
 
-	-- tiras en el techo (parte baja de la losa del piso 3)
-	for i, z in { -30, 22, 38 } do
-		glow(f, "CeilStrip" .. i, -46, y + 21.6, z, 46, y + 22, z + 0.6, C.purple, { cycle = true, phase = i })
-	end
-
-	-- Barra VIP: vasos de cristal, bandeja de chupitos y calabazas (superficie y = 28.5)
-	local vy, vz = y + 4.5, -42.5
-	for i, sx in { -1, 1 } do
-		pumpkin(f, "VipPumpkin" .. i, sx * 13.2, vy, vz, math.pi, 0.6, { mini = true })
-	end
-	glassware(f, "VipGlass1", -10, vy, vz, "martini", LIQUIDS.orange, { coaster = true, glow = C.orange })
-	glassware(f, "VipGlass2", -6.8, vy, vz, "highball", LIQUIDS.purple, { coaster = true, glow = C.purple, straw = C.white })
-	glassware(f, "VipGlass3", -3.6, vy, vz, "tumbler", LIQUIDS.green, { coaster = true, glow = C.orange, garnish = true })
-	glassware(f, "VipGlass4", 3.6, vy, vz, "tumbler", LIQUIDS.cyan, { coaster = true, glow = C.purple })
-	glassware(f, "VipGlass5", 6.8, vy, vz, "martini", LIQUIDS.pink, { coaster = true, glow = C.orange })
-	glassware(f, "VipGlass6", 10, vy, vz, "highball", LIQUIDS.orange, { coaster = true, glow = C.orange, straw = C.orange })
-	shotTray(f, "VipShots", 0, vy, vz, false)
-
-	-- Halloween VIP: telaranas en las esquinas del techo y murcielagos en la pared norte
-	for i, c in { { -47.95, -46, 1 }, { 47.95, -46, 1 }, { -47.95, 46, -1 }, { 47.95, 46, -1 } } do
-		cobweb(f, "VipWeb" .. i, Vector3.new(c[1], y + 21.95, c[2]), Vector3.new(0, 0, c[3]), Vector3.new(0, -1, 0), 4.5)
-	end
-	for i, b in { { -26, 17 }, { 26, 17 }, { -34, 13 }, { 34, 13 } } do
-		wallBat(f, "VipBat" .. i, b[1], y + b[2], -47.6, 0, 1)
-	end
-	fillGrid(f, "Fill2", y + 8, C.magenta, 40, 0.8)
-	neonArt(f, "CeilArt2", -46, 17, 46, 47, y + 21.8, 11, 5, C.magenta)
-	for _, x in { -36, -24, -12, 0, 12, 24, 36 } do
-		for _, z in { 24, 38 } do
+	-- techo: neon rosa, focos empotrados y tiras (parte baja de la losa del piso 3)
+	neonArt(f, "CeilArt2", -76, 24, 76, 76, y + 21.8, 11, 7, C.magenta)
+	for _, x in { -60, -30, 0, 30, 60 } do
+		for _, z in { 30, 50, 70 } do
 			downlight(f, "Downlight2", x, y + 21.9, z)
 		end
 	end
-	sign(f, "Floor2Label", 47.75, y + 16, -20, 10, 3, -1, 0, "LEVEL 2", C.gold, false)
+	for i, z in { -64, 22 } do
+		glow(f, "CeilStrip" .. i, -76, y + 21.6, z, 76, y + 22, z + 0.6, VIOLET, { cycle = true, phase = i })
+	end
 
-	-- escalera P2 -> P3 (oeste): 10 studs de ancho, se sube hacia el sur.
-	-- Descanso de entrada 10x10 al norte (z -48..-38).
-	stairs(folders.Stairs, "Stairs2", -48, -38, y, -38, 1)
-	stairRail(folders.Stairs, "Stairs2Rail", -38.15, y, -38, 1)
+	-- Halloween VIP: telaranas en las esquinas del techo y murcielagos en la pared norte
+	for i, c in { { -77.95, -76, 1 }, { 77.95, -76, 1 }, { -77.95, 76, -1 }, { 77.95, 76, -1 } } do
+		cobweb(f, "VipWeb" .. i, Vector3.new(c[1], y + 21.95, c[2]), Vector3.new(0, 0, c[3]), Vector3.new(0, -1, 0), 4.5)
+	end
+	for i, b in { { -64, 15 }, { 64, 15 }, { -70, 11 }, { 70, 11 } } do
+		wallBat(f, "VipBat" .. i, b[1], y + b[2], -77.6, 0, 1)
+	end
+	sign(f, "Floor2Label", 77.75, y + 16, -40, 10, 3, -1, 0, "NIVEL 2", C.gold, false)
+
+	-- escalera P2 -> P3 (oeste): 10 de ancho, sube al sur. Descanso de entrada al norte (10 x 14).
+	stairs(folders.Stairs, "Stairs2", S2.x1, S2.x2, S2.baseY, S2.zStart, S2.dir)
+	stairRail(folders.Stairs, "Stairs2Rail", S2.x2 - 0.15, S2.baseY, S2.zStart, S2.dir)
+	fillGrid(f, "Fill2", y + 8, C.magenta, 60, 0.9)
 end
 
 ------------------------------------------------------------------------
--- PISO 3 (rooftop)
+-- PISO 3 (rooftop): escenario DJ con monograma, barra, piscina, fire pits y loungers
 ------------------------------------------------------------------------
 local function lounger(parent, name, x, y, z)
 	B(parent, name .. "_Base", x - 1.5, y, z - 3.5, x + 1.5, y + 1.2, z + 3.5, Color3.fromRGB(235, 235, 245), M.Fabric)
@@ -1687,12 +2034,7 @@ local function firePit(parent, name, x, y, z)
 	fire.Color = C.fire
 	fire.SecondaryColor = C.magenta
 	fire.Parent = flame
-	local l = Instance.new("PointLight")
-	l.Color = C.fire
-	l.Range = 26
-	l.Brightness = 2
-	l.Parent = flame
-	lightCount += 1
+	addLight(flame, C.fire, 26, false, 2)
 	sofa(parent, name .. "_SofaS", x, y, z + 6.5, 0, 6, C.velvet, C.fire)
 	sofa(parent, name .. "_SofaN", x, y, z - 6.5, math.pi, 6, C.velvet, C.fire)
 	sofa(parent, name .. "_SofaE", x + 6.5, y, z, math.pi / 2, 6, C.velvet, C.fire)
@@ -1702,37 +2044,41 @@ end
 local function buildFloor3()
 	local f = folders.Floor3
 	local y = FLOOR_Y[3]
-	local pool = { 14, 22, 34, 44 }
-	slab(f, "Floor3_Slab", -50, -50, 50, 50, y, 2, { { -48, -10, -38, 10 }, pool }, C.deck, M.WoodPlanks)
+	local S2, pool = LAYOUT.s2, LAYOUT.pool
+	slab(f, "Floor3_Slab", -80, -80, 80, 80, y, 2, { S2.hole, pool }, C.deck, M.WoodPlanks)
 
-	-- parapeto de cristal + barandillas del hueco de escalera
-	railLoop(f, "Parapet", -49.6, -49.6, 49.6, 49.6, y, C.magenta)
-	rail(f, "S2Rail_N", -48, -10, -38, -10, y, C.cyan)
-	rail(f, "S2Rail_E", -38, -10, -38, 10, y, C.cyan)
-	landing(f, "Landing2Out", -48, 10, -38, 20, y)
+	-- parapeto de cristal + barandillas del hueco de escalera + descanso de llegada
+	railLoop(f, "Parapet", -79.6, -79.6, 79.6, 79.6, y, C.magenta)
+	rail(f, "S2Rail_N", S2.hole[1], S2.hole[2], S2.hole[3], S2.hole[2], y, C.cyan)
+	rail(f, "S2Rail_E", S2.hole[3], S2.hole[2], S2.hole[3], S2.hole[4], y, C.cyan)
+	landing(f, "Landing2Out", S2.landOut[1], S2.landOut[2], S2.landOut[3], S2.landOut[4], y)
 
-	-- piscina poco profunda (fondo neon + agua sin colision)
+	-- piscina poco profunda (fondo neon + agua sin colision), 40 x 38
 	B(f, "PoolFloor", pool[1], y - 2, pool[2], pool[3], y - 1, pool[4], Color3.fromRGB(0, 120, 200), M.Neon)
-	B(f, "PoolWater", pool[1], y - 1, pool[2], pool[3], y - 0.2, pool[4], C.cyan, M.Glass, { Transparency = 0.45, CanCollide = false })
-	glow(f, "PoolRim_N", pool[1], y, pool[2] - 0.2, pool[3], y + 0.15, pool[2], C.cyan, { cycle = true, light = 18 })
+	B(f, "PoolWater", pool[1], y - 1, pool[2], pool[3], y - 0.2, pool[4], C.cyan, M.Glass, { Transparency = 0.5, CanCollide = false })
+	glow(f, "PoolRim_N", pool[1], y, pool[2] - 0.2, pool[3], y + 0.15, pool[2], C.cyan, { cycle = true, light = 22 })
 	glow(f, "PoolRim_S", pool[1], y, pool[4], pool[3], y + 0.15, pool[4] + 0.2, C.cyan, { cycle = true })
 	glow(f, "PoolRim_W", pool[1] - 0.2, y, pool[2], pool[1], y + 0.15, pool[4], C.cyan, { cycle = true })
 	glow(f, "PoolRim_E", pool[3], y, pool[2], pool[3] + 0.2, y + 0.15, pool[4], C.cyan, { cycle = true })
 
-	-- escenario DJ del rooftop + arco
-	B(f, "RoofStage", -14, y, -47, 14, y + 2, -37, C.black, M.SmoothPlastic)
-	B(f, "RoofStageStep", -5, y, -37, 5, y + 1, -35.5, C.black, M.SmoothPlastic)
-	glow(f, "RoofStageTrim", -14, y + 0.6, -37.15, 14, y + 1, -37, C.cyan, { cycle = true, light = 16 })
-	djDeck(f, "DJ3", 0, y + 2, -43, C.magenta)
-	haze(f, "RoofHazeL", -8, y + 2.2, -38.5, 12)
-	haze(f, "RoofHazeR", 8, y + 2.2, -38.5, 12)
-	speaker(f, "RoofSpeaker_L", -19.5, y, -44, 9, true)
-	speaker(f, "RoofSpeaker_R", 19.5, y, -44, 9, false)
-	B(f, "ArchPillarL", -15.5, y, -47, -14.5, y + 15, -46, C.dark, M.Metal)
-	B(f, "ArchPillarR", 14.5, y, -47, 15.5, y + 15, -46, C.dark, M.Metal)
-	B(f, "ArchBeam", -15.5, y + 14, -47, 15.5, y + 15, -46, C.dark, M.Metal)
-	for i, x in { -8, 0, 8 } do
-		glow(f, "RoofSpot" .. i, x - 0.6, y + 13.1, -46.8, x + 0.6, y + 14, -45.2, C.purple, {
+	-- escenario DJ del rooftop: panel de fondo con el monograma, cartel y arco de focos
+	B(f, "RoofStage", -30, y, -78, 30, y + 2.2, -62, C.black, M.SmoothPlastic)
+	B(f, "RoofStageStep", -6, y, -62, 6, y + 1.1, -60.5, C.black, M.SmoothPlastic)
+	glow(f, "RoofStageTrim", -30, y + 0.6, -62.15, 30, y + 1, -62, C.cyan, { cycle = true, light = 18 })
+	B(f, "RoofBackdrop", -30, y, -78.6, 30, y + 24, -78, NAVY, M.Metal)
+	wallMonogram(f, "RoofMono", 0, y + 6.2, -78, 0, 1, 0.42)
+	sign(f, "RoofSign", 0, y + 4.1, -77.75, 30, 3.4, 0, 1, "MAYA CLUB", SILVER, false, "chrome")
+	djDeck(f, "DJ3", 0, y + 2.2, -70, C.magenta)
+	sign(f, "RoofDJFront", 0, y + 2.2 + 1.75, -68.75, 11, 2.4, 0, 1, "MAYA", SILVER, false, "chrome")
+	haze(f, "RoofHazeL", -12, y + 2.4, -63.5, 12)
+	haze(f, "RoofHazeR", 12, y + 2.4, -63.5, 12)
+	speaker(f, "RoofSpeaker_L", -38, y, -70, 9, true)
+	speaker(f, "RoofSpeaker_R", 38, y, -70, 9, false)
+	B(f, "ArchPillarL", -32, y, -70.5, -31, y + 15, -69.5, C.dark, M.Metal)
+	B(f, "ArchPillarR", 31, y, -70.5, 32, y + 15, -69.5, C.dark, M.Metal)
+	B(f, "ArchBeam", -32, y + 14, -70.5, 32, y + 15, -69.5, C.dark, M.Metal)
+	for i, x in { -16, -8, 0, 8, 16 } do
+		glow(f, "RoofSpot" .. i, x - 0.6, y + 13.1, -70.6, x + 0.6, y + 14, -69.4, VIOLET, {
 			cycle = true,
 			phase = i,
 			light = 34,
@@ -1742,57 +2088,59 @@ local function buildFloor3()
 			shaft = { 11, 0.5, 4 },
 		})
 	end
-	for i, x in { -10, 10 } do
-		addStrobe(f, "RoofStrobe" .. i, x - 1.5, y + 13.2, -46.8, x + 1.5, y + 14, -46)
+	for i, x in { -14, -6, 6, 14 } do
+		addStrobe(f, "RoofStrobe" .. i, x - 1.5, y + 13.2, -70.8, x + 1.5, y + 14, -70)
 	end
-	sign(f, "RoofSign", 0, y + 24, -47.2, 24, 6, 0, 1, "AURA", C.magenta, true)
-	B(f, "RoofSignPost1", -9, y + 15, -47.4, -8.5, y + 21, -47, C.dark, M.Metal, DECOR)
-	B(f, "RoofSignPost2", 8.5, y + 15, -47.4, 9, y + 21, -47, C.dark, M.Metal, DECOR)
 
-	-- barra del rooftop (isla + estanteria)
-	B(f, "RoofRack", 34, y, -30, 36, y + 10, -4, C.dark, M.Concrete)
-	bottleShelf(f, "RoofShelf", 33, y, -30, -4, 1)
-	barCounter(f, "RoofBar", 27.5, -30, 30.5, -4, y, "W", C.cyan)
-	for k = 0, 5 do
-		stool(f, "RoofStool" .. k, 24, y, -27 + k * 4)
+	-- barra del rooftop (este): mostrador, estanteria alta, taburetes y cristaleria
+	B(f, "RoofRack", 70, y, -50, 72, y + 10, -10, C.dark, M.Concrete)
+	bottleShelf(f, "RoofShelf", 69, y, -50, -10, 1)
+	barCounter(f, "RoofBar", 62, -50, 65, -10, y, "W", C.cyan)
+	for k = 0, 8 do
+		stool(f, "RoofStool" .. k, 58, y, -46 + k * 5)
 	end
-	glow(f, "RoofRackLed", 36, y, -30, 36.15, y + 10, -4, C.purple, { cycle = true, light = 22 })
-
-	-- loungers junto a la piscina y fire pits
-	for i, z in { 16, 24, 32, 40 } do
-		lounger(f, "Lounger" .. i, 10, y, z)
+	glow(f, "RoofRackLed", 72, y, -50, 72.15, y + 10, -10, VIOLET, { cycle = true, light = 22 })
+	local rx, ry = 63.5, y + 4.5
+	cauldron(f, "RoofCauldron", rx, ry, -48.2)
+	local rk = { "highball", "martini", "tumbler", "highball", "martini" }
+	local rl = { LIQUIDS.cyan, LIQUIDS.pink, LIQUIDS.orange, LIQUIDS.green, LIQUIDS.purple }
+	for i, z in { -43.5, -39, -34.5, -30, -25.5 } do
+		glassware(f, "RoofGlass" .. i, rx, ry, z, rk[i], rl[i], {
+			coaster = true,
+			glow = (i % 2 == 0) and VIOLET or C.orange,
+			straw = (rk[i] == "highball") and C.white or nil,
+			garnish = (rk[i] == "tumbler"),
+		})
 	end
-	firePit(f, "FirePit1", -26, y, -4)
-	firePit(f, "FirePit2", -26, y, 30)
+	shotTray(f, "RoofShots", rx, ry, -19.5, true)
+	for i, z in { -45, -15 } do
+		pumpkin(f, "RackPumpkin" .. i, 71, y + 10, z, -math.pi / 2, 0.7, { mini = true })
+	end
 
-
-	-- Barra del rooftop: vasos de cristal, caldero y chupitos (superficie y = 52.5)
-	local ry_, rx = y + 4.5, 29
-	cauldron(f, "RoofCauldron", rx, ry_, -28.3)
-	glassware(f, "RoofGlass1", rx, ry_, -24, "highball", LIQUIDS.cyan, { coaster = true, glow = C.cyan, straw = C.white })
-	glassware(f, "RoofGlass2", rx, ry_, -19.5, "martini", LIQUIDS.pink, { coaster = true, glow = C.purple })
-	glassware(f, "RoofGlass3", rx, ry_, -15, "tumbler", LIQUIDS.orange, { coaster = true, glow = C.orange, garnish = true })
-	glassware(f, "RoofGlass4", rx, ry_, -10.5, "highball", LIQUIDS.green, { coaster = true, glow = C.orange, straw = C.orange })
-	shotTray(f, "RoofShots", rx, ry_, -6.2, true)
-	for i, z in { -26, -8 } do
-		pumpkin(f, "RackPumpkin" .. i, 35, y + 10, z, math.pi / 2, 0.7, { mini = true })
+	-- loungers junto a la piscina (oeste y este) y 3 fire pits al oeste
+	for i, z in { 31, 40, 49, 58 } do
+		lounger(f, "LoungerW" .. i, 6, y, z)
+		lounger(f, "LoungerE" .. i, 64, y, z)
+	end
+	for i, p in { { -44, -26 }, { -44, 12 }, { -44, 50 } } do
+		firePit(f, "FirePit" .. i, p[1], y, p[2])
 	end
 
 	-- Halloween rooftop: calabazas en el escenario y murcielagos colgados del arco
 	for i, sx in { -1, 1 } do
-		pumpkin(f, "RoofStagePumpkin" .. i, sx * 12.5, y + 2, -38.4, math.pi, 0.9, { light = true, range = 18 })
+		pumpkin(f, "RoofStagePumpkin" .. i, sx * 27, y + 2.2, -64, math.pi, 0.9, { light = true, range = 18 })
 	end
-	for i, x in { -11.8, -4.5, 4.5, 11.8 } do
-		hangBat(f, "ArchBat" .. i, x, y + 12, -46.5, y + 14, 0, 1)
+	for i, x in { -27, -21, 21, 27 } do
+		hangBat(f, "ArchBat" .. i, x, y + 12, -70, y + 14, 0, 1)
 	end
-	fillGrid(f, "Fill3", y + 7, Color3.fromRGB(120, 110, 255), 40, 0.8)
 
-	-- macetas
-	for i = 0, 7 do
-		local x = -42 + i * 12
-		B(f, "Planter" .. i, x - 1.5, y, 45, x + 1.5, y + 2.2, 48, C.dark, M.Concrete)
-		ball(f, "PlanterLeaf" .. i, x, y + 4.2, 46.5, 4, C.green, M.Grass)
+	-- macetas a lo largo del parapeto sur
+	for i = 0, 10 do
+		local x = -70 + i * 14
+		B(f, "Planter" .. i, x - 1.5, y, 75, x + 1.5, y + 2.2, 78, C.dark, M.Concrete)
+		ball(f, "PlanterLeaf" .. i, x, y + 4.2, 76.5, 4, C.green, M.Grass)
 	end
+	fillGrid(f, "Fill3", y + 7, Color3.fromRGB(120, 110, 255), 60, 1.0)
 end
 
 ------------------------------------------------------------------------
@@ -1803,7 +2151,7 @@ local function buildSpawn()
 	s.Name = "ClubSpawn"
 	s.Anchored = true
 	s.Size = Vector3.new(8, 0.4, 8)
-	s.CFrame = CFrame.new(0, 0.2, 38)
+	s.CFrame = CFrame.new(LAYOUT.spawn[1], 0.2, LAYOUT.spawn[2])
 	s.Color = C.cyan
 	s.Material = M.Neon
 	s.Transparency = 0.6
@@ -1813,8 +2161,77 @@ local function buildSpawn()
 	s.Parent = club
 end
 
+-- interfaz: placa MAYA CLUB arriba al centro (logo opcional) que se clona a cada jugador
+local function buildUI()
+	local StarterGui = game:GetService("StarterGui")
+	local old = StarterGui:FindFirstChild("MayaClubUI")
+	if old then
+		old:Destroy()
+	end
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "MayaClubUI"
+	gui.ResetOnSpawn = false
+	gui.Parent = StarterGui
+
+	local frame = Instance.new("Frame")
+	frame.Name = "Badge"
+	frame.AnchorPoint = Vector2.new(0.5, 0)
+	frame.Position = UDim2.new(0.5, 0, 0, 10)
+	frame.Size = UDim2.fromOffset(260, 58)
+	frame.BackgroundColor3 = C.navy
+	frame.BackgroundTransparency = 0.25
+	frame.BorderSizePixel = 0
+	frame.Parent = gui
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 12)
+	corner.Parent = frame
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = C.violet
+	stroke.Thickness = 1.5
+	stroke.Transparency = 0.2
+	stroke.Parent = frame
+
+	local hasLogo = CONFIG.LogoImageId ~= ""
+	if hasLogo then
+		local img = Instance.new("ImageLabel")
+		img.Name = "Logo"
+		img.BackgroundTransparency = 1
+		img.Image = CONFIG.LogoImageId
+		img.ScaleType = Enum.ScaleType.Fit
+		img.Position = UDim2.fromOffset(8, 6)
+		img.Size = UDim2.fromOffset(46, 46)
+		img.Parent = frame
+	end
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.BackgroundTransparency = 1
+	title.Position = UDim2.fromOffset(hasLogo and 60 or 12, 4)
+	title.Size = UDim2.new(1, hasLogo and -68 or -24, 0, 32)
+	title.Font = Enum.Font.GothamBlack
+	title.Text = "MAYA CLUB"
+	title.TextScaled = true
+	title.TextColor3 = Color3.fromRGB(235, 238, 250)
+	title.TextStrokeColor3 = C.violet
+	title.TextStrokeTransparency = 0.35
+	title.Parent = frame
+	local grad = Instance.new("UIGradient")
+	grad.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(150, 190, 255))
+	grad.Rotation = 90
+	grad.Parent = title
+	local sub = Instance.new("TextLabel")
+	sub.Name = "Subtitle"
+	sub.BackgroundTransparency = 1
+	sub.Position = UDim2.fromOffset(hasLogo and 60 or 12, 36)
+	sub.Size = UDim2.new(1, hasLogo and -68 or -24, 0, 16)
+	sub.Font = Enum.Font.GothamMedium
+	sub.Text = "3 pisos - VIP - Rooftop"
+	sub.TextScaled = true
+	sub.TextColor3 = C.cyan
+	sub.Parent = frame
+end
+
 local function buildLighting()
-	for _, n in { "AuraBloom", "AuraColor", "AuraAtmosphere", "AuraDOF" } do
+	for _, n in { "MayaBloom", "MayaColor", "MayaAtmosphere", "MayaDOF" } do
 		local o = Lighting:FindFirstChild(n)
 		if o then
 			o:Destroy()
@@ -1838,14 +2255,14 @@ local function buildLighting()
 
 	-- bloom moderado: el neon brilla pero no tapa el detalle
 	local bloom = Instance.new("BloomEffect")
-	bloom.Name = "AuraBloom"
+	bloom.Name = "MayaBloom"
 	bloom.Intensity = LOOK.Bloom.Intensity
 	bloom.Size = LOOK.Bloom.Size
 	bloom.Threshold = LOOK.Bloom.Threshold
 	bloom.Parent = Lighting
 
 	local dof = Instance.new("DepthOfFieldEffect")
-	dof.Name = "AuraDOF"
+	dof.Name = "MayaDOF"
 	dof.FarIntensity = 0.12
 	dof.NearIntensity = 0
 	dof.FocusDistance = 45
@@ -1853,7 +2270,7 @@ local function buildLighting()
 	dof.Parent = Lighting
 
 	local cc = Instance.new("ColorCorrectionEffect")
-	cc.Name = "AuraColor"
+	cc.Name = "MayaColor"
 	cc.Contrast = 0.12
 	cc.Saturation = 0.22
 	cc.TintColor = Color3.fromRGB(235, 225, 255)
@@ -1863,7 +2280,7 @@ local function buildLighting()
 	if not atm then
 		atm = Instance.new("Atmosphere")
 	end
-	atm.Name = "AuraAtmosphere"
+	atm.Name = "MayaAtmosphere"
 	atm.Density = 0.18
 	atm.Offset = 0.2
 	atm.Color = Color3.fromRGB(120, 70, 190)
@@ -1894,7 +2311,7 @@ local function updateMirror(t)
 	end
 end
 
-local SCREEN_TEXTS = { "AURA", "CLUB", "3 FLOORS", "LET'S GO", "AURA" }
+local SCREEN_TEXTS = { "MAYA", "CLUB", "MAYA CLUB", "LET'S GO", "MAYA" }
 
 local GLOW_STEPS = 16
 local glowColors = {}
@@ -1910,11 +2327,11 @@ end
 
 local function startAnimations()
 	-- relanzar el script no apila conexiones
-	if _G.AuraClubConnection then
+	if _G.MayaClubConnection then
 		pcall(function()
-			_G.AuraClubConnection:Disconnect()
+			_G.MayaClubConnection:Disconnect()
 		end)
-		_G.AuraClubConnection = nil
+		_G.MayaClubConnection = nil
 	end
 	-- fuera de Play (p. ej. barra de comandos) el club queda estatico
 	if not RunService:IsRunning() then
@@ -1924,7 +2341,7 @@ local function startAnimations()
 	local t = 0
 	local accFast, accTiles, accGlows, accMirror = 0, 0, 0, 0
 	local lastScreen = 0
-	_G.AuraClubConnection = RunService.Heartbeat:Connect(function(dt)
+	_G.MayaClubConnection = RunService.Heartbeat:Connect(function(dt)
 		t += dt
 		accFast += dt
 		accTiles += dt
@@ -1953,13 +2370,19 @@ local function startAnimations()
 		if accTiles >= RATES.tiles then
 			accTiles = 0
 			for _, tile in fx.tiles do
-				-- color cuantizado: solo se escribe cuando cambia el paso
-				local hq = math.floor((0.5 + 0.4 * (0.5 + 0.5 * math.sin(t * 0.7 + (tile.ix + tile.iz) * 0.35))) * 24)
-				local vq = math.floor((0.3 + 0.6 * (0.5 + 0.5 * math.sin(t * 3 + tile.ix * 0.8 - tile.iz * 0.8))) * LOOK.TileBrightness * 8)
+				-- onda que se expande desde el centro; matiz cian -> violeta; el damero mantiene la
+				-- mitad de los paneles mas tenues. Color cuantizado: solo se escribe al cambiar de paso.
+				local dx, dz = tile.ix - (tile.n - 1) / 2, tile.iz - (tile.n - 1) / 2
+				local d = math.sqrt(dx * dx + dz * dz)
+				local wave = 0.5 + 0.5 * math.sin(d * 0.75 - t * 2.4)
+				local hue = 0.5 + 0.3 * (0.5 + 0.5 * math.sin(t * 0.3 + d * 0.15))
+				local v = (0.22 + 0.58 * wave) * tile.dim * LOOK.TileBrightness
+				local hq = math.floor(hue * 24 + 0.5)
+				local vq = math.floor(v * 10 + 0.5)
 				local key = hq * 16 + vq
 				if tile.key ~= key then
 					tile.key = key
-					tile.part.Color = Color3.fromHSV(hq / 24 % 1, 0.9, vq / 8)
+					tile.part.Color = Color3.fromHSV(hq / 24, 0.9, vq / 10)
 				end
 			end
 		end
@@ -2021,6 +2444,7 @@ buildFloor2()
 buildFloor3()
 buildSpawn()
 buildLighting()
+buildUI()
 updateMirror(0)
 updateBeams(0) -- pose inicial correcta antes de aparecer
 club.Parent = Workspace
@@ -2033,10 +2457,6 @@ for _, d in club:GetDescendants() do
 	end
 end
 if CONFIG.MusicId == "" then
-	print("[AuraClub] Sin musica: CONFIG.MusicId esta vacio (opcional). Pon un audio que puedas usar.")
+	print("[MayaClub] Sin musica: CONFIG.MusicId esta vacio (opcional). Pon un audio que puedas usar.")
 end
-print(string.format("[AuraClub] listo: %d partes, %d luces, 3 pisos.", partCount, lightCount))
-]]></ProtectedString>
-		</Properties>
-	</Item>
-</roblox>
+print(string.format("[MayaClub] listo: %d partes, %d luces, 3 pisos.", partCount, lightCount))

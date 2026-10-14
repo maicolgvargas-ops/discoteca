@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Genera AuraClub.rbxlx (place completo) y AuraClub.rbxmx (solo el Script, para
+"""Genera MayaClub.rbxlx (place completo) y MayaClub.rbxmx (solo el Script, para
 'Insert from File...' en un place ya abierto) con el script dentro."""
 import pathlib
 import xml.etree.ElementTree as ET
 
 root = pathlib.Path(__file__).resolve().parent.parent
-src = (root / "src/ServerScriptService/AuraClub.server.luau").read_text(encoding="utf-8")
+src = (root / "src/ServerScriptService/MayaClub.server.luau").read_text(encoding="utf-8")
 assert "]]>" not in src, "el script no puede contener ']]>' dentro de CDATA"
 
 HEADER = (
@@ -20,7 +20,7 @@ def script_item(referent: str, indent: str) -> str:
     return (
         f'{indent}<Item class="Script" referent="{referent}">\n'
         f"{indent}\t<Properties>\n"
-        f'{indent}\t\t<string name="Name">AuraClub</string>\n'
+        f'{indent}\t\t<string name="Name">MayaClub</string>\n'
         f'{indent}\t\t<token name="RunContext">0</token>\n'
         f'{indent}\t\t<ProtectedString name="Source"><![CDATA[{src}]]></ProtectedString>\n'
         f"{indent}\t</Properties>\n"
@@ -58,7 +58,7 @@ place = (
 )
 model = HEADER + script_item("RBX0", "\t") + "</roblox>\n"
 
-for name, xml in (("AuraClub.rbxlx", place), ("AuraClub.rbxmx", model)):
+for name, xml in (("MayaClub.rbxlx", place), ("MayaClub.rbxmx", model)):
     tree = ET.fromstring(xml)  # valida que sea XML bien formado
     got = [e.text for e in tree.iter("ProtectedString")]
     assert got == [src], f"{name}: el Source no coincide con el script"

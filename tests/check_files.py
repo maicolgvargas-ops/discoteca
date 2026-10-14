@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Comprueba AuraClub.rbxlx / .rbxmx: XML valido, Source identico al .luau y Lighting.Technology=Future."""
+"""Comprueba MayaClub.rbxlx / .rbxmx: XML valido, Source identico al .luau y Lighting.Technology=Future."""
 import pathlib
 import sys
 import xml.etree.ElementTree as ET
 
 root = pathlib.Path(__file__).resolve().parent.parent
-src = (root / "src/ServerScriptService/AuraClub.server.luau").read_text(encoding="utf-8")
+src = (root / "src/ServerScriptService/MayaClub.server.luau").read_text(encoding="utf-8")
 ok = True
 
 
@@ -15,8 +15,8 @@ def check(name, cond):
     ok = ok and cond
 
 
-place = ET.parse(root / "AuraClub.rbxlx").getroot()
-model = ET.parse(root / "AuraClub.rbxmx").getroot()
+place = ET.parse(root / "MayaClub.rbxlx").getroot()
+model = ET.parse(root / "MayaClub.rbxmx").getroot()
 check("rbxlx: Source del Script identico al .luau", [e.text for e in place.iter("ProtectedString")] == [src])
 check("rbxmx: Source del Script identico al .luau", [e.text for e in model.iter("ProtectedString")] == [src])
 lighting = [i for i in place.iter("Item") if i.get("class") == "Lighting"]

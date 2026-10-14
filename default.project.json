@@ -1,11 +1,11 @@
 {
-  "name": "AuraClub",
+  "name": "MayaClub",
   "tree": {
     "$className": "DataModel",
     "ServerScriptService": {
       "$className": "ServerScriptService",
-      "AuraClub": {
-        "$path": "src/ServerScriptService/AuraClub.server.luau"
+      "MayaClub": {
+        "$path": "src/ServerScriptService/MayaClub.server.luau"
       }
     }
   }

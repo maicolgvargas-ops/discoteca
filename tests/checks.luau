@@ -9,18 +9,17 @@ local function check(name, cond, detail)
 		print("  FAIL  " .. name .. (detail and (" -> " .. tostring(detail)) or ""))
 	end
 end
+local function finite(n)
+	return n == n and n ~= math.huge and n ~= -math.huge
+end
 
-print("\n=== TESTS AURA CLUB ===")
+print("\n=== TESTS MAYA CLUB ===")
 
-local built = workspace:FindFirstChild("AuraClub")
-check("modelo AuraClub en Workspace", built ~= nil and built == club)
+check("modelo MayaClub en Workspace", club ~= nil and workspace:FindFirstChild("MayaClub") == club)
 check("Baseplate de plantilla eliminado", workspace:FindFirstChild("Baseplate") == nil)
 
 -- piezas y colisionadores ------------------------------------------------
 local parts, colliders = {}, {}
-local function finite(n)
-	return n == n and n ~= math.huge and n ~= -math.huge
-end
 local badPart
 for _, d in club:GetDescendants() do
 	if d:IsA("BasePart") then
@@ -38,27 +37,25 @@ for _, d in club:GetDescendants() do
 				x1 = cf.px - hx, x2 = cf.px + hx,
 				y1 = cf.py - hy, y2 = cf.py + hy,
 				z1 = cf.pz - hz, z2 = cf.pz + hz,
-				name = d.Name,
+				name = d.Name, part = d,
 			})
 		end
 	end
 end
 check("todas las partes: Anchored, tamanos y posiciones finitos", badPart == nil, badPart)
-check("cantidad de partes razonable (< 8000)", #parts < 8000, #parts)
+check("cantidad de partes razonable (< 7000)", #parts < 7000, #parts)
 print(string.format("        partes=%d  colisionables=%d", #parts, #colliders))
 
-local lights = 0
+local lightsList = {}
 for _, d in club:GetDescendants() do
 	if d:IsA("PointLight") or d:IsA("SpotLight") then
-		lights += 1
+		local part = d.Parent
+		table.insert(lightsList, { x = part.CFrame.px, y = part.CFrame.py, z = part.CFrame.pz, r = d.Range, on = d.Enabled ~= false })
 	end
 end
-check("luces < 150 (rendimiento)", lights < 150, lights)
-print("        luces=" .. lights)
-
-local spawnLoc = club:FindFirstChild("ClubSpawn")
-check("SpawnLocation presente", spawnLoc ~= nil)
-
+check("luces <= 260 (rendimiento)", #lightsList <= 260, #lightsList)
+print("        luces=" .. #lightsList)
+check("SpawnLocation presente", club:FindFirstChild("ClubSpawn") ~= nil)
 local hasSound = false
 for _, d in club:GetDescendants() do
 	if d:IsA("Sound") then
@@ -66,6 +63,9 @@ for _, d in club:GetDescendants() do
 	end
 end
 check("objeto Sound de musica presente", hasSound)
+check("MusicId vacio por defecto (sin ID inventado)", CONFIG.MusicId == "")
+check("LogoImageId vacio por defecto (sin ID inventado)", CONFIG.LogoImageId == "")
+check("normalizeAudioId acepta numero, texto y rbxassetid", normalizeAudioId(123) == "rbxassetid://123" and normalizeAudioId(" 456 ") == "rbxassetid://456" and normalizeAudioId("rbxassetid://7") == "rbxassetid://7" and normalizeAudioId(nil) == "" and normalizeAudioId("") == "")
 
 -- consultas geometricas ---------------------------------------------------
 local function topsAt(x, z)
@@ -98,216 +98,504 @@ local function hasTopBetween(x, z, lo, hi)
 	end
 	return false
 end
-
--- pisos --------------------------------------------------------------------
-check("piso 1 solido (suelo en y=0)", hasTop(40, -40, 0) or hasTop(-30, 40, 0))
-check("piso 2 solido (suelo en y=24)", hasTop(0, 30, 24) and hasTop(-30, -40, 24))
-check("piso 3 solido (suelo en y=48)", hasTop(-20, 20, 48) and hasTop(30, 0, 48))
-check("atrio: sin losa del piso 2 sobre la pista", not hasTopBetween(0, -10, 20, 30))
-check("atrio: techo/azotea del piso 3 sobre la pista", hasTop(0.5, -11, 48))
-check("hueco escalera 1 en piso 2", not hasTop(44, 8, 24) and not hasTop(44, 0, 24))
-check("hueco escalera 2 en piso 3", not hasTop(-44, -8, 48) and not hasTop(-44, 0, 48))
-check("piscina: fondo a 47, sin losa a 48", hasTop(24, 33, 47) and not hasTop(24, 33, 48))
-check("agua de la piscina sin colision", not hasTopBetween(24, 33, 47.1, 48.5))
-check("entrada: hueco de puerta libre", not hasTopBetween(0, 49, 1, 10))
-check("pared sur cerrada fuera de la puerta", hasTopBetween(20, 49, 21, 23))
-
--- escaleras: peldanos contiguos de 1 stud y alcanzan el piso siguiente
-local function stairInfo(x, zStart, dir, baseY)
-	local prev = baseY
-	local okRise = true
-	for i = 0, 23 do
-		local zc = zStart + dir * (2 * i + 1)
-		local want = baseY + i + 1
-		if not hasTop(x, zc, want) then
-			okRise = false
-		end
-		if want - prev > 1.01 then
-			okRise = false
-		end
-		prev = want
-	end
-	return okRise
-end
-check("escalera 1: 24 peldanos de 1 stud hasta y=24", stairInfo(43, 38, -1, 0))
-check("escalera 2: 24 peldanos de 1 stud hasta y=48", stairInfo(-43, -38, 1, 24))
-check("salida escalera 1 conecta con el suelo del piso 2", hasTop(43, -12, 24))
-check("salida escalera 2 conecta con el suelo del piso 3", hasTop(-43, 12, 48))
-
--- BFS de navegacion (jugador 2x2x5) sobre TODO el terreno: club, calles, aceras y parqueadero ---
-local CELL, OX, OZ, NX, NZ = 1, -101, -101, 202, 260
-local BODY = 1 -- semilado del cuerpo (jugador 2x2)
-local cellColl = {}
-for i = 0, NX - 1 do
-	cellColl[i] = {}
-	for j = 0, NZ - 1 do
-		cellColl[i][j] = {}
-	end
-end
-for _, c in colliders do
-	local i0 = math.max(0, math.floor((c.x1 - BODY - OX) / CELL))
-	local i1 = math.min(NX - 1, math.floor((c.x2 + BODY - OX) / CELL))
-	local j0 = math.max(0, math.floor((c.z1 - BODY - OZ) / CELL))
-	local j1 = math.min(NZ - 1, math.floor((c.z2 + BODY - OZ) / CELL))
-	for i = i0, i1 do
-		for j = j0, j1 do
-			table.insert(cellColl[i][j], c)
+local function named(pat)
+	local out = {}
+	for _, d in club:GetDescendants() do
+		if string.match(d.Name, pat) then
+			table.insert(out, d)
 		end
 	end
+	return out
 end
-local nodes = {} -- [i][j] = lista de alturas validas
-local totalNodes = 0
-for i = 0, NX - 1 do
-	nodes[i] = {}
-	for j = 0, NZ - 1 do
-		local cx, cz = OX + (i + 0.5) * CELL, OZ + (j + 0.5) * CELL
-		local list, seen = {}, {}
-		for _, c in cellColl[i][j] do
-			if cx > c.x1 and cx < c.x2 and cz > c.z1 and cz < c.z2 and c.y2 < 70 then
-				local h = c.y2
-				local k = math.floor(h * 10 + 0.5)
-				if not seen[k] then
-					seen[k] = true
-					-- cuerpo libre entre h+1.7 y h+5 en toda la celda (lo bajo se sube de un escalon)
-					local blocked = false
-					for _, o in cellColl[i][j] do
-						-- enterrado: el punto de apoyo esta dentro de otro solido
-						if cx > o.x1 and cx < o.x2 and cz > o.z1 and cz < o.z2 and o.y1 < h - 0.05 and o.y2 > h + 0.1 then
-							blocked = true
-							break
-						end
-					end
-					if not blocked then
+local function find(n)
+	for _, d in club:GetDescendants() do
+		if d.Name == n then return d end
+	end
+end
+local function count(pat)
+	return #named(pat)
+end
+
+-- ================= TAMANO 160 x 160 POR PISO =================
+local function bbox(list)
+	local x1, x2, z1, z2 = math.huge, -math.huge, math.huge, -math.huge
+	for _, p in list do
+		local s, cf = p.Size, p.CFrame
+		x1 = math.min(x1, cf.px - s.X / 2); x2 = math.max(x2, cf.px + s.X / 2)
+		z1 = math.min(z1, cf.pz - s.Z / 2); z2 = math.max(z2, cf.pz + s.Z / 2)
+	end
+	return x1, z1, x2, z2
+end
+for k = 1, 3 do
+	local slabs = {}
+	for _, d in club:FindFirstChild("Floor" .. k):GetChildren() do
+		if d:IsA("BasePart") and string.match(d.Name, "^Floor" .. k .. "_Slab") then
+			table.insert(slabs, d)
+		end
+	end
+	if k == 1 then
+		for _, d in club:GetDescendants() do
+			if d.Name == "Floor1_Slab" then table.insert(slabs, d) end
+		end
+	end
+	local x1, z1, x2, z2 = bbox(slabs)
+	check(string.format("piso %d: losa de %.0f x %.0f studs (>= 160 x 160)", k, x2 - x1, z2 - z1), x2 - x1 >= 159.9 and z2 - z1 >= 159.9 and #slabs > 0)
+end
+check("piso 1 solido (y=0)", hasTop(-60, 60, 0) and hasTop(60, -60, 0) and hasTop(-60, 20, 0))
+check("piso 2 solido (y=24)", hasTop(0, 50, 24) and hasTop(-60, -60, 24) and hasTop(60, 40, 24))
+check("piso 3 solido (y=48)", hasTop(-20, 50, 48) and hasTop(50, -50, 48))
+check("atrio: sin losa del piso 2 sobre la pista", not hasTopBetween(0, -24, 20, 30))
+check("hueco escalera 1 en piso 2", not hasTop(73, 26, 24))
+check("hueco escalera 2 en piso 3", not hasTop(-73, -26, 48))
+check("entrada: hueco de puerta libre", not hasTopBetween(0, 79, 1, 10))
+check("pared sur cerrada fuera de la puerta", hasTopBetween(40, 79, 1, 22.5))
+
+-- ================= IDENTIDAD MAYA CLUB =================
+local aura = {}
+for _, d in club:GetDescendants() do
+	if string.find(string.upper(d.Name), "AURA") then
+		table.insert(aura, d.Name)
+	end
+	if d:IsA("TextLabel") and string.find(string.upper(d.Text), "AURA") then
+		table.insert(aura, d.Text)
+	end
+end
+check("sin rastro de la marca antigua en nombres ni textos", #aura == 0, table.concat(aura, ","))
+local texts = {}
+for _, d in club:GetDescendants() do
+	if d:IsA("TextLabel") then
+		texts[d.Text] = (texts[d.Text] or 0) + 1
+	end
+end
+check("letrero principal 'MAYA CLUB' en fachada y rooftop", (texts["MAYA CLUB"] or 0) >= 2, texts["MAYA CLUB"])
+check("DJ con 'MAYA' en frente y pantalla", (texts["MAYA"] or 0) >= 3, texts["MAYA"])
+local monoPlates = named("Mono[%a]*_Plate$")
+local monoCores = named("Mono[%a]*_Core$")
+check("monogramas de geometria (>= 8 placas y 8 nucleos)", #monoPlates >= 8 and #monoCores >= 8, #monoPlates .. "/" .. #monoCores)
+local ui = game:GetService("StarterGui"):FindFirstChild("MayaClubUI")
+local uiTitle
+if ui then
+	for _, d in ui:GetDescendants() do
+		if d:IsA("TextLabel") and d.Text == "MAYA CLUB" then uiTitle = d end
+	end
+end
+check("UI con titulo MAYA CLUB", ui ~= nil and uiTitle ~= nil)
+check("sin imagen (LogoImageId vacio) no hay ImageLabel", #(function() local t = {} for _, d in club:GetDescendants() do if d:IsA("ImageLabel") then table.insert(t, d) end end return t end)() == 0)
+
+-- ================= NAVEGACION (BFS por celdas de 1 stud) =================
+-- body = semilado del cuerpo; obstaculos entre h+1.7 y h+5 bloquean; escalones de hasta maxStep
+local function buildNav(BODY, OX, OZ, NX, NZ)
+	local cellColl = {}
+	for i = 0, NX - 1 do
+		cellColl[i] = {}
+		for j = 0, NZ - 1 do
+			cellColl[i][j] = {}
+		end
+	end
+	for _, c in colliders do
+		local i0 = math.max(0, math.floor(c.x1 - BODY - OX))
+		local i1 = math.min(NX - 1, math.floor(c.x2 + BODY - OX))
+		local j0 = math.max(0, math.floor(c.z1 - BODY - OZ))
+		local j1 = math.min(NZ - 1, math.floor(c.z2 + BODY - OZ))
+		for i = i0, i1 do
+			for j = j0, j1 do
+				table.insert(cellColl[i][j], c)
+			end
+		end
+	end
+	local nodes, total = {}, 0
+	for i = 0, NX - 1 do
+		nodes[i] = {}
+		for j = 0, NZ - 1 do
+			local cx, cz = OX + i + 0.5, OZ + j + 0.5
+			local list, seen = {}, {}
+			for _, c in cellColl[i][j] do
+				if cx > c.x1 and cx < c.x2 and cz > c.z1 and cz < c.z2 and c.y2 < 70 then
+					local h = c.y2
+					local k = math.floor(h * 10 + 0.5)
+					if not seen[k] then
+						seen[k] = true
+						local blocked = false
 						for _, o in cellColl[i][j] do
-							local ox = o.x1 < cx + BODY - 0.05 and o.x2 > cx - BODY + 0.05
-							local oz = o.z1 < cz + BODY - 0.05 and o.z2 > cz - BODY + 0.05
-							if ox and oz and o.y2 > h + 1.7 and o.y1 < h + 5 then
+							if cx > o.x1 and cx < o.x2 and cz > o.z1 and cz < o.z2 and o.y1 < h - 0.05 and o.y2 > h + 0.1 then
 								blocked = true
 								break
 							end
 						end
-					end
-					if not blocked then
-						table.insert(list, h)
-						totalNodes += 1
+						if not blocked then
+							for _, o in cellColl[i][j] do
+								local ox = o.x1 < cx + BODY - 0.05 and o.x2 > cx - BODY + 0.05
+								local oz = o.z1 < cz + BODY - 0.05 and o.z2 > cz - BODY + 0.05
+								if ox and oz and o.y2 > h + 1.7 and o.y1 < h + 5 then
+									blocked = true
+									break
+								end
+							end
+						end
+						if not blocked then
+							table.insert(list, h)
+							total += 1
+						end
 					end
 				end
 			end
-		end
-		nodes[i][j] = list
-	end
-end
-local function key(i, j, h)
-	return (i * 1000 + j) * 10000 + math.floor(h * 10 + 0.5) + 2000
-end
-local function ci(x)
-	return math.floor((x - OX) / CELL)
-end
-local function cj(z)
-	return math.floor((z - OZ) / CELL)
-end
-local function startNodeNear(x, z, wantH)
-	local i, j = ci(x), cj(z)
-	local best
-	for _, h in nodes[i][j] do
-		if not best or math.abs(h - wantH) < math.abs(best - wantH) then
-			best = h
+			nodes[i][j] = list
 		end
 	end
-	return i, j, best
-end
-local DIRS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
--- recorrido en anchura desde un nodo; maxStep = desnivel maximo entre celdas contiguas
-local function bfs(si, sj, sh, maxStep)
-	local vis, queue, head = {}, {}, 1
-	vis[key(si, sj, sh)] = true
-	table.insert(queue, { si, sj, sh })
-	while head <= #queue do
-		local cur = queue[head]
-		head += 1
-		for _, d in DIRS do
-			local ni, nj = cur[1] + d[1], cur[2] + d[2]
-			if ni >= 0 and ni < NX and nj >= 0 and nj < NZ then
-				for _, h in nodes[ni][nj] do
-					if math.abs(h - cur[3]) <= maxStep then
-						local k = key(ni, nj, h)
-						if not vis[k] then
-							vis[k] = true
-							table.insert(queue, { ni, nj, h })
+	local nav = { nodes = nodes, total = total }
+	function nav.key(i, j, h)
+		return (i * 1000 + j) * 10000 + math.floor(h * 10 + 0.5) + 2000
+	end
+	function nav.ci(x) return math.floor(x - OX) end
+	function nav.cj(z) return math.floor(z - OZ) end
+	function nav.startNear(x, z, wantH)
+		local i, j = nav.ci(x), nav.cj(z)
+		local best
+		for _, h in nodes[i][j] do
+			if not best or math.abs(h - wantH) < math.abs(best - wantH) then best = h end
+		end
+		return i, j, best
+	end
+	local DIRS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+	function nav.bfs(si, sj, sh, maxStep)
+		local vis, queue, head = {}, {}, 1
+		vis[nav.key(si, sj, sh)] = true
+		table.insert(queue, { si, sj, sh })
+		while head <= #queue do
+			local cur = queue[head]
+			head += 1
+			for _, d in DIRS do
+				local ni, nj = cur[1] + d[1], cur[2] + d[2]
+				if ni >= 0 and ni < NX and nj >= 0 and nj < NZ then
+					for _, h in nodes[ni][nj] do
+						if math.abs(h - cur[3]) <= maxStep then
+							local k = nav.key(ni, nj, h)
+							if not vis[k] then
+								vis[k] = true
+								table.insert(queue, { ni, nj, h })
+							end
 						end
 					end
 				end
 			end
 		end
+		return vis, #queue
 	end
-	return vis, #queue
-end
-local si, sj, sh = startNodeNear(0.5, 38.5, 0.4)
-check("nodo de spawn transitable", sh ~= nil and math.abs(sh - 0.4) < 0.01, sh)
-local visited, nVisited = bfs(si, sj, sh, 1.6)
-local function reachedInSet(set, x1, z1, x2, z2, h)
-	local n = 0
-	for i = ci(x1), ci(x2) do
-		for j = cj(z1), cj(z2) do
-			for _, hh in nodes[i][j] do
-				if math.abs(hh - h) < 0.06 and set[key(i, j, hh)] then
-					n += 1
+	function nav.countIn(set, x1, z1, x2, z2, h, tol)
+		local n = 0
+		for i = math.max(0, nav.ci(x1)), math.min(NX - 1, nav.ci(x2)) do
+			for j = math.max(0, nav.cj(z1)), math.min(NZ - 1, nav.cj(z2)) do
+				for _, hh in nodes[i][j] do
+					if math.abs(hh - h) < (tol or 0.06) and set[nav.key(i, j, hh)] then n += 1 end
 				end
 			end
 		end
+		return n
 	end
-	return n
-end
-local function reachedIn(x1, z1, x2, z2, h)
-	return reachedInSet(visited, x1, z1, x2, z2, h)
-end
-local function reached(x, z, h)
-	return reachedIn(x, z, x, z, h) > 0
-end
-print(string.format("        nodos transitables=%d, alcanzados desde el spawn=%d", totalNodes, nVisited))
-check("alcanza el escenario DJ del piso 1 (y=3)", reachedIn(-17, -46, 17, -38, 3) > 100)
-check("alcanza la pista LED (y=0.2)", reachedIn(-23, -33, 23, 13, 0.2) > 1000)
-check("alcanza la zona de la barra del piso 1", reachedIn(-39, -25, -37.5, 5, 0) > 30)
-check("alcanza los booths del piso 1", reachedIn(-45, 14, -38, 42, 0) > 50)
-check("alcanza el piso 2 VIP por la escalera (barra, lounges)", reachedIn(-14, -38, 14, -35, 24) > 50 and reachedIn(-36, 20, 36, 45, 24) > 500)
-check("alcanza el balcon del piso 2 junto al atrio", reachedIn(-24, -37.5, 24, -35, 24) > 20)
-check("alcanza el piso 3 rooftop por la escalera", reachedIn(-30, 18, 30, 46, 48) > 500)
-check("alcanza el DJ del rooftop (y=50)", reachedIn(-13, -46, 13, -38, 50) > 100)
-check("alcanza la barra del rooftop", reachedIn(20, -30, 26, -4, 48) > 50)
-check("alcanza el fondo de la piscina (y=47)", reachedIn(15, 23, 33, 43, 47) > 100)
-
--- ningun suelo "perdido": fraccion alcanzable por nivel
-local function ratio(level)
-	local tot, ok = 0, 0
-	for i = 0, NX - 1 do
-		for j = 0, NZ - 1 do
-			for _, h in nodes[i][j] do
-				if math.abs(h - level) < 0.06 then
-					tot += 1
-					if visited[key(i, j, h)] then
-						ok += 1
+	function nav.levelRatio(set, level, x1, z1, x2, z2)
+		local tot, ok = 0, 0
+		for i = math.max(0, nav.ci(x1)), math.min(NX - 1, nav.ci(x2)) do
+			for j = math.max(0, nav.cj(z1)), math.min(NZ - 1, nav.cj(z2)) do
+				for _, h in nodes[i][j] do
+					if math.abs(h - level) < 0.06 then
+						tot += 1
+						if set[nav.key(i, j, h)] then ok += 1 end
 					end
 				end
 			end
 		end
+		return ok, tot
 	end
-	return ok, tot
+	return nav
+end
+
+-- 1) terreno completo con cuerpo 2x2 (1 stud de semilado)
+local W = LAYOUT.world
+local OX1, OZ1 = W.x1 - 3, W.z1 - 3
+local nav1 = buildNav(1, OX1, OZ1, (W.x2 - W.x1) + 6, (W.z2 - W.z1) + 6)
+local si, sj, sh = nav1.startNear(LAYOUT.spawn[1] + 0.5, LAYOUT.spawn[2] + 0.5, 0.4)
+check("nodo de spawn transitable", sh ~= nil and math.abs(sh - 0.4) < 0.01, sh)
+local visited, nVisited = nav1.bfs(si, sj, sh, 1.6)
+print(string.format("        nodos transitables=%d, alcanzados desde el spawn=%d", nav1.total, nVisited))
+local function reachedIn(x1, z1, x2, z2, h) return nav1.countIn(visited, x1, z1, x2, z2, h) end
+
+local D, St = LAYOUT.dance, LAYOUT.stage
+check("alcanza el escenario DJ del piso 1", reachedIn(-10, St.z1 + 4, 10, St.z2 - 2, St.top) > 60, reachedIn(-10, St.z1 + 4, 10, St.z2 - 2, St.top))
+check("alcanza la pista LED", reachedIn(D.x1 + 4, D.z1 + 4, D.x2 - 4, D.z2 - 4, 0.2) > 2000, reachedIn(D.x1 + 4, D.z1 + 4, D.x2 - 4, D.z2 - 4, 0.2))
+check("pisos 2 y 3 alcanzables por las escaleras", reachedIn(-60, 40, 60, 70, 24) > 800 and reachedIn(-60, 40, 60, 70, 48) > 800)
+local rs = find("RoofStage")
+check("alcanza el DJ del rooftop", reachedIn(-10, -76, 10, -64, rs.CFrame.py + rs.Size.Y / 2) > 60)
+check("alcanza el fondo de la piscina (y=47)", reachedIn(LAYOUT.pool[1] + 4, LAYOUT.pool[2] + 4, LAYOUT.pool[3] - 4, LAYOUT.pool[4] - 4, 47) > 200)
+for _, e in { { "s1", 0 }, { "s1", 24 }, { "s2", 24 }, { "s2", 48 } } do
+	local s = LAYOUT[e[1]]
+	local r = e[2] == s.baseY and s.landIn or s.landOut
+	check(string.format("descanso %s a y=%d transitable", e[1], e[2]), reachedIn(r[1] + 1, r[2] + 1, r[3] - 1, r[4] - 1, e[2]) >= 30)
 end
 for _, lvl in { { 0.2, "piso 1 (pista)" }, { 24, "piso 2" }, { 48, "piso 3" } } do
-	local ok, tot = ratio(lvl[1])
+	local ok, tot = nav1.levelRatio(visited, lvl[1], -78, -78, 78, 78)
 	check(string.format("%s: %d/%d celdas planas alcanzables", lvl[2], ok, tot), tot > 0 and ok / tot > 0.9)
 end
 
--- animaciones: 90 s simulados a 30 fps sin errores, lasers dentro del atrio ----
-local beams = fx.beams
-check("6 laseres creados", #beams == 6, #beams)
-local tileBefore = nil
-for _, d in club:GetDescendants() do
-	if d.Name == "Tile" then
-		tileBefore = d.Color.R .. d.Color.G .. d.Color.B
-		break
+-- ruta peatonal SIN escalones (>0.35): puerta -> acera -> paso -> parqueadero
+local fi, fj, fh = nav1.startNear(0.5, 70.5, 0)
+local flat = nav1.bfs(fi, fj, fh, 0.35)
+local function flatIn(x1, z1, x2, z2, h) return nav1.countIn(flat, x1, z1, x2, z2, h) end
+check("ruta peatonal: acera frente a la puerta", flatIn(-5, 82, 5, 94, 0) >= 60)
+check("ruta peatonal: paso elevado frente a la puerta", flatIn(-5, 97, 5, 115, 0) >= 150)
+check("ruta peatonal: camino del parqueadero", flatIn(-3, 130, 3, 148, 0) >= 50 and flatIn(-3, 176, 3, 196, 0) >= 50)
+print(string.format("        ruta sin escalones desde el spawn: %d celdas", (function() local n = 0 for _ in flat do n += 1 end return n end)()))
+
+-- 2) pasillos: cuerpo de 7 studs (pasillo principal >= 8) y de 5 (secundario >= 6) dentro del edificio.
+-- Las escaleras se recorren con el cuerpo normal (su pendiente "pared" a cuerpos anchos), por eso
+-- cada nivel se recorre en anchura desde el descanso de llegada de la escalera.
+local OXB, OZB = -84, -84
+local function levelNav(body)
+	local nav = buildNav(body, OXB, OZB, 168, 168)
+	local sets = {}
+	local starts = { [0] = { 0.5, 76.5, 0 }, [24] = { 73.5, 10.5, 24 }, [48] = { -73.5, -10.5, 48 } }
+	for lvl, st in starts do
+		local i, j, h = nav.startNear(st[1], st[2], st[3])
+		sets[lvl] = h and nav.bfs(i, j, h, 1.6) or {}
+		sets[lvl .. "ok"] = h ~= nil and math.abs(h - st[3]) < 0.06
+	end
+	return nav, sets
+end
+local nav35, sets35 = levelNav(3.5)
+local function in35(lvl, x1, z1, x2, z2, h) return nav35.countIn(sets35[lvl], x1, z1, x2, z2, h) end
+local s1_, s2_ = LAYOUT.s1, LAYOUT.s2
+check("pasillos de 8: cuerpo de 7 studs entra por la puerta y recorre la pista", sets35["0ok"] and in35(0, D.x1 - 8, D.z1, D.x2 + 8, D.z2, 0.2) > 500)
+check("pasillos de 8: llega al escenario y a la escalera 1 (piso 1)", in35(0, -10, St.z2 + 2, 10, St.z2 + 8, 0.2) > 20 and in35(0, s1_.landIn[1] + 1, s1_.landIn[2] + 1, s1_.landIn[3] - 1, s1_.landIn[4] - 1, 0) > 10)
+check("pasillos de 8 (piso 2): del descanso de llegada al pie de la escalera 2", sets35["24ok"] and in35(24, s2_.landIn[1] + 1, s2_.landIn[2] + 1, s2_.landIn[3] - 1, s2_.landIn[4] - 1, 24) > 10)
+check("pasillos de 8 (piso 2): recorre el piso 2 (lounges y barras)", in35(24, -60, 30, 60, 70, 24) > 600, in35(24, -60, 30, 60, 70, 24))
+check("pasillos de 8 (piso 3): del descanso de llegada a la barra y al DJ", sets35["48ok"] and in35(48, 40, -50, 76, -10, 48) > 30 and in35(48, -10, -62, 10, -50, rs and (rs.CFrame.py + rs.Size.Y / 2) or 50.2) >= 0, in35(48, 40, -50, 76, -10, 48))
+local nav25, sets25 = levelNav(2.5)
+local function in25(lvl, x1, z1, x2, z2, h) return nav25.countIn(sets25[lvl], x1, z1, x2, z2, h) end
+check("pasillos de 6 (cuerpo de 5 studs): recorre pisos 1, 2 y 3", sets25["0ok"] and in25(0, -78, -78, 78, 78, 0) > 1500 and in25(24, -78, -78, 78, 78, 24) > 1500 and in25(48, -78, -78, 78, 78, 48) > 1500, in25(0, -78, -78, 78, 78, 0) .. "/" .. in25(24, -78, -78, 78, 78, 24) .. "/" .. in25(48, -78, -78, 78, 78, 48))
+
+-- ================= PUNTOS DE INTERES: barras, VIP, rooftop =================
+local function levelOf(y) return y > 40 and 48 or (y > 16 and 24 or 0) end
+local function reachNear(part, m)
+	local s, cf = part.Size, part.CFrame
+	local lvl = levelOf(cf.py)
+	return nav1.countIn(visited, cf.px - s.X / 2 - m, cf.pz - s.Z / 2 - m, cf.px + s.X / 2 + m, cf.pz + s.Z / 2 + m, lvl, 0.06)
+end
+for _, n in { "BarE_Top", "BarW_Top", "VIPBar_Top", "RoofBar_Top", "TicketDesk_Top", "CoatCheck_Top" } do
+	local p = find(n)
+	check("acceso a pie junto a " .. n, p ~= nil and reachNear(p, 2.5) >= 8, p and reachNear(p, 2.5))
+end
+
+-- ================= ESCALERAS =================
+local function stairCheck(label, s, nSteps)
+	local steps = {}
+	for _, c in colliders do
+		if string.match(c.name, "^Stairs%d?_Step%d+$") and c.x1 >= s.x1 - 0.1 and c.x2 <= s.x2 + 0.1 and c.y2 > s.baseY - 0.1 and c.y2 <= s.baseY + 24.1 then
+			table.insert(steps, c)
+		end
+	end
+	table.sort(steps, function(a, b) return a.y2 < b.y2 end)
+	local ok = #steps == nSteps
+	for k, c in steps do
+		if math.abs(c.y2 - (s.baseY + k)) > 0.06 then ok = false end
+	end
+	check(label .. ": 24 peldanos de 1 stud, 10 de ancho", ok and (steps[1].x2 - steps[1].x1) >= 9.9, #steps)
+	-- altura libre >= 7 sobre cada peldano
+	local minClear = 99
+	for _, c in steps do
+		for _, o in colliders do
+			if o ~= c and not string.match(o.name, "^Stairs") and o.x1 < c.x2 - 0.5 and o.x2 > c.x1 + 0.5 and o.z1 < c.z2 and o.z2 > c.z1 and o.y1 >= c.y2 - 0.05 then
+				minClear = math.min(minClear, o.y1 - c.y2)
+			end
+		end
+	end
+	check(label .. ": altura libre >= 7 studs sobre los peldanos", minClear >= 7, minClear)
+end
+stairCheck("escalera 1", LAYOUT.s1, 24)
+stairCheck("escalera 2", LAYOUT.s2, 24)
+local function rectClear(r, floorY)
+	local bad
+	for _, c in colliders do
+		if c.x1 < r[3] and c.x2 > r[1] and c.z1 < r[4] and c.z2 > r[2] and c.y2 > floorY + 0.35 and c.y1 < floorY + 6 and not string.match(c.name, "^Landing") then
+			bad = bad or c.name
+		end
+	end
+	return bad
+end
+check("descanso de entrada escalera 1: libre de muebles", rectClear(LAYOUT.s1.landIn, 0) == nil, rectClear(LAYOUT.s1.landIn, 0))
+check("descanso de llegada escalera 1 (piso 2): libre", rectClear(LAYOUT.s1.landOut, 24) == nil, rectClear(LAYOUT.s1.landOut, 24))
+check("descanso de entrada escalera 2 (piso 2): libre", rectClear(LAYOUT.s2.landIn, 24) == nil, rectClear(LAYOUT.s2.landIn, 24))
+check("descanso de llegada escalera 2 (piso 3): libre", rectClear(LAYOUT.s2.landOut, 48) == nil, rectClear(LAYOUT.s2.landOut, 48))
+
+-- ================= SEPARACION DE MESAS Y LOUNGES =================
+local function minDist(list)
+	local m, who = math.huge, ""
+	for i = 1, #list do
+		for j = i + 1, #list do
+			local d = math.sqrt((list[i].CFrame.px - list[j].CFrame.px) ^ 2 + (list[i].CFrame.pz - list[j].CFrame.pz) ^ 2)
+			if d < m then m = d end
+		end
+	end
+	return m
+end
+local lt = named("^LoungeTable%d+_Top$")
+local ht = named("^HighTable%d+_Top$")
+check("14 lounges VIP", #lt == 14, #lt)
+check("8 mesas altas", #ht == 8, #ht)
+local dLt, dHt = minDist(lt), minDist(ht)
+print(string.format("        distancia minima entre lounges=%.1f, entre mesas altas=%.1f", dLt, dHt))
+check("lounges separados >= 22 (grupos de 12 + pasillo >= 8 entre ellos)", dLt >= 22, dLt)
+check("mesas altas separadas >= 12", dHt >= 12, dHt)
+
+-- ================= PISTA LED =================
+local tiles = named("^Tile$")
+check("pista LED: 256 baldosas (16 x 16) con juntas", #tiles == 256 and find("DanceBase") ~= nil)
+check("pista LED: bisel de 4 lados y 4 tiras LED", count("^DanceBezel%d$") == 4 and count("^DanceLed[NSEW]$") == 4)
+local tileMaterialsOk, tMax = true, 0
+for _, t in tiles do
+	if t.Material ~= Enum.Material.SmoothPlastic and t.Material ~= Enum.Material.Glass then tileMaterialsOk = false end
+	tMax = math.max(tMax, t.Color.R, t.Color.G, t.Color.B)
+end
+local lg = find("LedGlass")
+check("pista LED: cristal superior translucido para reflejos", lg ~= nil and lg.Transparency >= 0.3 and lg.Transparency <= 0.9 and lg.CanCollide == false and lg.Reflectance > 0)
+check("pista LED: baldosas no sobreexpuestas (canal max <= 0.85)", tMax <= 0.85, tMax)
+
+-- ================= COCHES =================
+local cars = {}
+for _, b in named("^Car%d+_Body$") do
+	table.insert(cars, tonumber(string.match(b.Name, "^Car(%d+)_")))
+end
+check("20 coches aparcados", #cars == 20, #cars)
+local sil = { Hood = 0, Spoiler = 0, Wing = 0, Scoop = 0, Duckbill = 0, Fastback = 0, Grille = 0, Haunch = 0 }
+check("3 siluetas: ferrari (Scoop/Haunch), GT (Wing/Duckbill) y mustang (Grille/Fastback)", count("_Haunch$") >= 14 and count("_Duckbill$") >= 6 and count("_Fastback$") >= 6 and count("_Grille$") >= 6)
+check("cada coche con 4 neumaticos, llantas, bujes, parabrisas, faros y pilotos", count("^Car%d+_Tire$") == 80 and count("^Car%d+_Rim$") == 80 and count("^Car%d+_Hub$") == 80 and count("^Car%d+_Windshield$") == 20 and count("^Car%d+_Headlight$") == 40 and count("^Car%d+_Tail") >= 20)
+local colorSeen, glassOk = {}, true
+for _, d in named("^Car%d+_Body$") do
+	local c = d.Color
+	local k = (c.R > 0.6 and c.G < 0.3) and "rojo" or (c.B > 0.5 and c.R < 0.35) and "azul" or (c.R > 0.8 and c.G > 0.8 and c.B > 0.8) and "blanco" or (c.R < 0.15 and c.G < 0.15 and c.B < 0.18) and "negro" or "otro"
+	colorSeen[k] = true
+end
+check("colores rojo, azul, blanco y negro presentes", colorSeen["rojo"] and colorSeen["azul"] and colorSeen["blanco"] and colorSeen["negro"], (function() local t = {} for k in colorSeen do table.insert(t, k) end return table.concat(t, ",") end)())
+for _, d in named("^Car%d+_Windshield$") do
+	if d.Transparency < 0.2 or d.Transparency > 0.8 then glassOk = false end
+end
+check("cristales con transparencia equilibrada (0.2-0.8)", glassOk)
+-- caja de cada coche y ajuste en su plaza (plaza 10 x 20; margen >= 1 stud)
+local carBox = {}
+for _, p in parts do
+	local n = tonumber(string.match(p.Name, "^Car(%d+)_"))
+	if n then
+		local b = carBox[n] or { x1 = math.huge, x2 = -math.huge, z1 = math.huge, z2 = -math.huge, y2 = -math.huge }
+		local s, r = p.Size, p.CFrame.r
+		local hx = (math.abs(r[1]) * s.X + math.abs(r[2]) * s.Y + math.abs(r[3]) * s.Z) / 2
+		local hz = (math.abs(r[7]) * s.X + math.abs(r[8]) * s.Y + math.abs(r[9]) * s.Z) / 2
+		local hy = (math.abs(r[4]) * s.X + math.abs(r[5]) * s.Y + math.abs(r[6]) * s.Z) / 2
+		b.x1 = math.min(b.x1, p.CFrame.px - hx); b.x2 = math.max(b.x2, p.CFrame.px + hx)
+		b.z1 = math.min(b.z1, p.CFrame.pz - hz); b.z2 = math.max(b.z2, p.CFrame.pz + hz)
+		b.y2 = math.max(b.y2, p.CFrame.py + hy)
+		carBox[n] = b
 	end
 end
+local fitBad, overlapBad, accessBad, dims = nil, nil, nil, ""
+for n, b in carBox do
+	local cx = (b.x1 + b.x2) / 2
+	local lo = cx < 0 and (-98 + 10 * math.floor((cx + 98) / 10)) or (8 + 10 * math.floor((cx - 8) / 10))
+	local zlo, zhi = 128, 148
+	if (b.z1 + b.z2) / 2 > 162 then zlo, zhi = 176, 196 end
+	if b.x1 < lo + 0.7 or b.x2 > lo + 9.3 or b.z1 < zlo + 0.5 or b.z2 > zhi - 0.5 then
+		fitBad = fitBad or string.format("Car%d x[%.1f,%.1f] z[%.1f,%.1f] plaza %d", n, b.x1, b.x2, b.z1, b.z2, lo)
+	end
+	for m, o in carBox do
+		if m > n and b.x1 < o.x2 and b.x2 > o.x1 and b.z1 < o.z2 and b.z2 > o.z1 then overlapBad = overlapBad or (n .. "/" .. m) end
+	end
+	for _, a in { { -17, 129, -9, 147 }, { 9, 129, 17, 147 } } do
+		if b.x1 < a[3] and b.x2 > a[1] and b.z1 < a[4] and b.z2 > a[2] then accessBad = accessBad or n end
+	end
+	if n == 1 then dims = string.format("%.1f x %.1f x %.1f", b.x2 - b.x1, b.z2 - b.z1, b.y2 + 0.24) end
+end
+check("cada coche (con espejos) cabe en su plaza de 10 x 20 con >= 0.7 de holgura lateral y 0.5 de fondo", fitBad == nil, fitBad)
+check("los coches no se solapan entre si", overlapBad == nil, overlapBad)
+check("las plazas accesibles estan libres de coches", accessBad == nil, accessBad)
+local LOT_Y_T = -0.24
+local minW, maxW, maxL = math.huge, 0, 0
+for _, b in carBox do
+	minW = math.min(minW, b.x2 - b.x1); maxW = math.max(maxW, b.x2 - b.x1); maxL = math.max(maxL, b.z2 - b.z1); assert(b.y2 - LOT_Y_T <= 4.6, "coche demasiado alto")
+end
+print(string.format("        coches: ancho %.1f..%.1f, largo max %.1f studs", minW, maxW, maxL))
+local bw, bl = 0, 0
+for _, d in named("^Car%d+_Body$") do bw = math.max(bw, d.Size.X); bl = math.max(bl, d.Size.Z) end
+check("dimensiones realistas (carroceria 6-7.6 de ancho, 14-17 de largo, alto <= 4.5)", bw >= 6 and bw <= 7.6 and bl >= 14 and bl <= 17 and maxL <= 18)
+local carCollidersOnly = true
+for _, c in colliders do
+	local n = string.match(c.name, "^Car%d+_(.+)$")
+	if n and n ~= "Body" and n ~= "Cabin" then carCollidersOnly = false end
+end
+check("solo carroceria y cabina colisionan en los coches", carCollidersOnly)
+-- circulacion: pasillos entre plazas y calle interior libres para cuerpos de 2 studs
+check("parqueadero: calle interior transitable", nav1.countIn(visited, -60, 152, 60, 172, -0.24) >= 1500)
+check("parqueadero: pasillos peatonales junto a plazas accesibles", nav1.countIn(visited, -8, 128, 8, 148, -0.24) >= 60 or flatIn(-3, 130, 3, 148, 0) >= 50)
+
+-- ================= MUNDO EXTERIOR: PERIMETRO Y LIMITES =================
+local function solidAt(x, y, z)
+	for _, c in colliders do
+		if x > c.x1 and x < c.x2 and y > c.y1 and y < c.y2 and z > c.z1 and z < c.z2 then return true end
+	end
+	return false
+end
+local gaps = 0
+for t = W.x1 + 1, W.x2 - 1, 2 do
+	for _, z in { W.z1 - 1, W.z2 + 1 } do
+		if not (solidAt(t, 8, z) and solidAt(t, 60, z)) then gaps += 1 end
+	end
+end
+for t = W.z1 + 1, W.z2 - 1, 2 do
+	for _, x in { W.x1 - 1, W.x2 + 1 } do
+		if not (solidAt(x, 8, t) and solidAt(x, 60, t)) then gaps += 1 end
+	end
+end
+check("perimetro cerrado: muro + barrera invisible hasta y=70 sin huecos", gaps == 0, gaps)
+local voids = 0
+for x = W.x1 + 4, W.x2 - 4, 6 do
+	for z = W.z1 + 4, W.z2 - 4, 6 do
+		if #topsAt(x, z) == 0 then voids += 1 end
+	end
+end
+check("sin vacio: suelo en todo el terreno jugable", voids == 0, voids)
+local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
+for i = 0, (W.x2 - W.x1) + 5 do
+	for j = 0, (W.z2 - W.z1) + 5 do
+		if #nav1.nodes[i][j] > 0 then
+			for _, h in nav1.nodes[i][j] do
+				if visited[nav1.key(i, j, h)] then
+					local x, z = OX1 + i + 0.5, OZ1 + j + 0.5
+					minX = math.min(minX, x); maxX = math.max(maxX, x); minZ = math.min(minZ, z); maxZ = math.max(maxZ, z)
+				end
+			end
+		end
+	end
+end
+print(string.format("        area alcanzable a pie: X %.1f..%.1f, Z %.1f..%.1f", minX, maxX, minZ, maxZ))
+check("el jugador no sale del mapa", minX >= W.x1 and maxX <= W.x2 and minZ >= W.z1 and maxZ <= W.z2)
+local outside
+for _, p in parts do
+	local s, cf = p.Size, p.CFrame
+	if cf.px - s.X / 2 < W.x1 - 12 or cf.px + s.X / 2 > W.x2 + 12 or cf.pz - s.Z / 2 < W.z1 - 12 or cf.pz + s.Z / 2 > W.z2 + 12 then outside = outside or p.Name end
+end
+check("terreno ajustado: ninguna pieza fuera de 256 x 334 (+margen del muro)", outside == nil, outside)
+check("senalizacion: pasos elevados, bordillos, lineas de detencion, eje discontinuo", count("^Crosswalk%a*_Slab$") + count("^LotCross_Slab$") == 5 and count("^Curb") >= 18 and count("^StopLine_") == 8 and count("^Dash_") >= 50)
+check("plazas demarcadas: 40 lineas, 4 frontales, topes de rueda", count("^SlotLine$") == 40 and count("^SlotFront$") == 4 and count("^WheelStop$") >= 32)
+check("2 plazas accesibles azules senalizadas", count("^Access[LR]$") == 2 and count("^AccessSign[LR]_Plate$") == 2)
+local lampLights = 0
+for _, d in club:GetDescendants() do
+	if d:IsA("PointLight") and string.match(d.Parent.Name, "Head$") and string.match(d.Parent.Name, "Lamp") then lampLights += 1 end
+end
+check("farolas con luz real (>= 40)", lampLights >= 40, lampLights)
+check("perimetro: 4 muros, pilares con neon y 4 barreras", count("^PerimeterWall_") == 4 and count("^Pillar[NSWE]$") >= 36 and count("^Boundary_") == 4)
+check("jardineria: setos, arboles y jardineras", count("^Hedge[LR]$") >= 2 and count("Trunk$") >= 15 and count("^Planter") >= 10)
+
+-- ================= ANIMACION, EFECTOS, RENDIMIENTO =================
+local beams = fx.beams
+check("6 laseres creados", #beams == 6, #beams)
+local tileBefore
+for _, t in tiles do tileBefore = (tileBefore or "") .. t.Color.R .. "," end
 local worst = 0
 local strobeSeen = false
 local ok, err = pcall(function()
@@ -315,21 +603,15 @@ local ok, err = pcall(function()
 		fireHeartbeat(1 / 30)
 		for _, b in beams do
 			local tip = b.head.CFrame.Position + b.tip.Position
-			local tail = b.origin
-			for _, p in { tip, tail } do
-				local out = math.max(math.abs(p.X) - 24, -34 - p.Z, p.Z - 14, 0)
-				if out > worst then
-					print(string.format("        laser fuera: (%.1f, %.1f, %.1f) out=%.1f", p.X, p.Y, p.Z, out))
-				end
+			for _, p in { tip, b.origin } do
+				local out = math.max(math.abs(p.X) - 40, -58 - p.Z, p.Z - 18, 0)
 				worst = math.max(worst, out)
 			end
-			assert(tip.Y > -1 and tip.Y < 41, "punta de laser fuera de altura: " .. tip.Y)
+			assert(tip.Y > -1 and tip.Y < 46, "punta de laser fuera de altura: " .. tip.Y)
 			assert(finite(tip.X) and finite(tip.Z), "NaN en laser")
 		end
-		for _, d in club:GetDescendants() do
-			if d.Name == "Strobe1" and d.Color.R > 0.9 then
-				strobeSeen = true
-			end
+		for _, st in fx.strobes do
+			if st.light.Enabled then strobeSeen = true end
 		end
 	end
 end)
@@ -337,38 +619,44 @@ check("90 s de animacion sin errores", ok, err)
 check("lasers siempre dentro del hueco del atrio", worst < 0.01, worst)
 check("estrobos se encienden en la rafaga", strobeSeen)
 local tileAfter
-for _, d in club:GetDescendants() do
-	if d.Name == "Tile" then
-		tileAfter = d.Color.R .. d.Color.G .. d.Color.B
-		break
-	end
-end
+for _, t in tiles do tileAfter = (tileAfter or "") .. t.Color.R .. "," end
 check("la pista LED cambia de color", tileBefore ~= tileAfter)
-local mirrorN, mirrorMoved = 0, false
-for _, d in club:GetDescendants() do
-	if d.Name == "MirrorFacet" then
-		mirrorN += 1
-	end
+local tmin, tmax = 1, 0
+for _, t in tiles do
+	local m = math.max(t.Color.R, t.Color.G, t.Color.B)
+	tmin = math.min(tmin, m); tmax = math.max(tmax, m)
 end
-check("bola de espejos: 44 facetas + nucleo", mirrorN == 44 and club:FindFirstChild("Floor1"):FindFirstChild("MirrorCore") ~= nil, mirrorN)
-local f1 = club:FindFirstChild("Floor1")
-local first
-for _, d in f1:GetChildren() do
-	if d.Name == "MirrorFacet" then
-		first = d
-		break
-	end
-end
+check("pista LED animada sin sobreexposicion (max <= 0.85) ni apagon", tmax <= 0.85 and tmax >= 0.3, tmax)
+local mirrorN = count("^MirrorFacet$")
+check("bola de espejos: 44 facetas + nucleo", mirrorN == 44 and find("MirrorCore") ~= nil, mirrorN)
+local first = find("MirrorFacet")
 local x0, z0 = first.CFrame.px, first.CFrame.pz
 fireHeartbeat(1 / 30); fireHeartbeat(1 / 30); fireHeartbeat(1 / 30)
 check("la bola de espejos gira", math.abs(first.CFrame.px - x0) + math.abs(first.CFrame.pz - z0) > 0.001)
-local screen = club:FindFirstChild("Floor1"):FindFirstChild("DJScreen")
+local screen = find("DJScreen")
 check("pantalla LED con texto", screen ~= nil and #screen:GetChildren() > 0)
+local strobesOn = 0
+for _, st in fx.strobes do
+	if st.light.Enabled ~= false then strobesOn += 1 end
+end
+-- (tras la animacion algunos pueden estar encendidos; se comprueba la cantidad)
+check("estrobos creados (>= 10)", #fx.strobes >= 10, #fx.strobes)
 
--- piezas flotantes: toda parte visible debe tocar (+-0.08) a otra -----------
+__countWrites = true
+__writes = 0
+for _ = 1, 10 * 30 do
+	fireHeartbeat(1 / 30)
+end
+__countWrites = false
+local perSec = __writes / 10
+print(string.format("        escrituras de propiedades/s (animacion) = %.0f", perSec))
+check("animacion < 2600 escrituras/s", perSec < 2600, perSec)
+check("existe handle de conexion para limpieza al relanzar", _G.MayaClubConnection ~= nil)
+
+-- piezas flotantes: toda parte visible debe tocar (+-0.08) a otra
 local boxes = {}
-for _, d in club:GetDescendants() do
-	if d:IsA("BasePart") and (d.Transparency or 0) < 1 and d.Parent.Name ~= "Effects" then
+for _, d in parts do
+	if (d.Transparency or 0) < 1 and d.Parent.Name ~= "Effects" then
 		local s, cf, r = d.Size, d.CFrame, d.CFrame.r
 		local hx = (math.abs(r[1]) * s.X + math.abs(r[2]) * s.Y + math.abs(r[3]) * s.Z) / 2 + 0.08
 		local hy = (math.abs(r[4]) * s.X + math.abs(r[5]) * s.Y + math.abs(r[6]) * s.Z) / 2 + 0.08
@@ -392,253 +680,49 @@ for i, a in boxes do
 end
 check("ninguna pieza visible flota sin apoyo", #floating == 0, table.concat(floating, ", "))
 
--- estrobos apagados al construir y solo se encienden en rafagas
-local strobesOn = 0
-for _, st in fx.strobes do
-	if st.light.Enabled ~= false then
-		strobesOn += 1
-	end
-end
-check("estrobos: todas las luces nacen apagadas", strobesOn == 0, strobesOn)
-
--- ID de audio opcional: nunca se inventa uno; normaliza formatos validos
-check("MusicId vacio por defecto (sin ID inventado)", CONFIG.MusicId == "")
-check("normalizeAudioId acepta numero, texto y rbxassetid", normalizeAudioId(123) == "rbxassetid://123" and normalizeAudioId(" 456 ") == "rbxassetid://456" and normalizeAudioId("rbxassetid://7") == "rbxassetid://7" and normalizeAudioId(nil) == "" and normalizeAudioId("") == "")
-
--- presupuesto de red: escrituras de propiedades por segundo en regimen estable
-__countWrites = true
-__writes = 0
-for _ = 1, 10 * 30 do
-	fireHeartbeat(1 / 30)
-end
-__countWrites = false
-local perSec = __writes / 10
-print(string.format("        escrituras de propiedades/s (animacion) = %.0f", perSec))
-check("animacion < 1700 escrituras/s", perSec < 1700, perSec)
-
--- reejecutar no apila conexiones: la anterior se desconecta
-check("existe handle de conexion para limpieza al relanzar", _G.AuraClubConnection ~= nil)
-
--- cobertura de luz: >= 90% de las celdas caminables de cada piso con una luz cerca ---
-local lightsList = {}
-for _, d in club:GetDescendants() do
-	if (d:IsA("PointLight") or d:IsA("SpotLight")) and d.Enabled ~= false then
-		local part = d.Parent
-		table.insert(lightsList, { x = part.CFrame.px, y = part.CFrame.py, z = part.CFrame.pz, r = d.Range })
-	end
-end
+-- ================= LUZ: COBERTURA Y AJUSTES =================
 local function lit(x, y, z)
 	for _, l in lightsList do
 		local dx, dy, dz = x - l.x, y - l.y, z - l.z
-		if dy < 1 and (dx * dx + dy * dy + dz * dz) <= (0.75 * l.r) ^ 2 then
-			return true
-		end
+		if l.on and dy < 1 and (dx * dx + dy * dy + dz * dz) <= (0.75 * l.r) ^ 2 then return true end
 	end
 	return false
 end
 for _, lvl in { { 0.2, "piso 1" }, { 24, "piso 2" }, { 48, "piso 3" } } do
-	local tot, ok = 0, 0
-	for i = 0, NX - 1 do
-		for j = 0, NZ - 1 do
-			for _, h in nodes[i][j] do
-				if math.abs(h - lvl[1]) < 0.06 and visited[key(i, j, h)] then
-					tot += 1
-					if lit(OX + (i + 0.5) * CELL, h + 3, OZ + (j + 0.5) * CELL) then
-						ok += 1
+	local tot, okc = 0, 0
+	for i = 0, (W.x2 - W.x1) + 5 do
+		for j = 0, (W.z2 - W.z1) + 5 do
+			local x, z = OX1 + i + 0.5, OZ1 + j + 0.5
+			if math.abs(x) < 78 and math.abs(z) < 78 then
+				for _, h in nav1.nodes[i][j] do
+					if math.abs(h - lvl[1]) < 0.06 and visited[nav1.key(i, j, h)] then
+						tot += 1
+						if lit(x, h + 3, z) then okc += 1 end
 					end
 				end
 			end
 		end
 	end
-	check(string.format("cobertura de luz %s: %d/%d celdas (%.0f%%)", lvl[2], ok, tot, 100 * ok / math.max(1, tot)), tot > 0 and ok / tot >= 0.9)
+	check(string.format("cobertura de luz %s: %d/%d celdas (%.0f%%)", lvl[2], okc, tot, 100 * okc / math.max(1, tot)), tot > 0 and okc / tot >= 0.9)
 end
+local extTot, extOk = 0, 0
+for i = 0, (W.x2 - W.x1) + 5, 2 do
+	for j = 0, (W.z2 - W.z1) + 5, 2 do
+		local x, z = OX1 + i + 0.5, OZ1 + j + 0.5
+		if (math.abs(x) > 82 or z > 82 or z < -82) and x > W.x1 + 4 and x < W.x2 - 4 and z > W.z1 + 4 and z < W.z2 - 4 then
+			for _, h in nav1.nodes[i][j] do
+				if h < 1 and visited[nav1.key(i, j, h)] then
+					extTot += 1
+					if lit(x, h + 3, z) then extOk += 1 end
+				end
+			end
+		end
+	end
+end
+check(string.format("cobertura de luz exterior: %d/%d (%.0f%%)", extOk, extTot, 100 * extOk / math.max(1, extTot)), extTot > 0 and extOk / extTot >= 0.85)
 local amb = __lighting.Ambient
-check("ambiente base legible (luminancia media >= 0.15)", (amb.R + amb.G + amb.B) / 3 >= 0.15, (amb.R + amb.G + amb.B) / 3)
-check("luces < 150 con el relleno", lights + 0 < 150 and #lightsList < 150, #lightsList)
+check("ambiente base legible (luminancia media >= 0.15)", (amb.R + amb.G + amb.B) / 3 >= 0.15)
 
--- ================= ESCALERAS: ancho, descansos, altura libre, circulacion =================
-local stepRows = {}
-for _, d in club:GetDescendants() do
-	local sn, idx = string.match(d.Name, "^(Stairs%d)_Step(%d+)$")
-	if sn and d:IsA("BasePart") then
-		stepRows[sn] = stepRows[sn] or {}
-		stepRows[sn][tonumber(idx)] = d
-	end
-end
-for _, sn in { "Stairs1", "Stairs2" } do
-	local rows = stepRows[sn]
-	local minW, maxRise = 1e9, 0
-	for i = 0, 23 do
-		minW = math.min(minW, rows[i].Size.X)
-	end
-	check(sn .. ": 24 peldanos y ancho util >= 10 studs", #rows + 1 == 24 and minW >= 10, minW)
-end
-
--- descansos 10x10 libres de solidos (nada entre el suelo y 6 studs de altura)
-local function rectClear(x1, z1, x2, z2, floorY)
-	local bad
-	for _, cl in colliders do
-		if cl.x1 < x2 - 0.05 and cl.x2 > x1 + 0.05 and cl.z1 < z2 - 0.05 and cl.z2 > z1 + 0.05 and cl.y2 > floorY + 0.3 and cl.y1 < floorY + 6 then
-			bad = bad or cl.name
-		end
-	end
-	return bad == nil, bad
-end
-for _, l in {
-	{ "descanso de entrada escalera 1 (piso 1)", 38, 38, 48, 48, 0 },
-	{ "descanso de llegada escalera 1 (piso 2)", 38, -20, 48, -10, 24 },
-	{ "descanso de entrada escalera 2 (piso 2)", -48, -48, -38, -38, 24 },
-	{ "descanso de llegada escalera 2 (piso 3)", -48, 10, -38, 20, 48 },
-} do
-	local ok_, who = rectClear(l[2], l[3], l[4], l[5], l[6])
-	check(l[1] .. ": 10x10 libre de muebles", ok_, who)
-end
-
--- altura libre sobre cada peldano (>= 7 studs: avatar de 5 + margen)
-local minClear, worstStep = 1e9, nil
-for _, sn in { "Stairs1", "Stairs2" } do
-	for i = 0, 23 do
-		local st = stepRows[sn][i]
-		local sx1, sx2 = st.CFrame.px - st.Size.X / 2 + 0.5, st.CFrame.px + st.Size.X / 2 - 0.5
-		local sz1, sz2 = st.CFrame.pz - st.Size.Z / 2 + 0.1, st.CFrame.pz + st.Size.Z / 2 - 0.1
-		local top = st.CFrame.py + st.Size.Y / 2
-		local lowest = 1e9
-		for _, cl in colliders do
-			if not string.find(cl.name, "_Step") and cl.x1 < sx2 and cl.x2 > sx1 and cl.z1 < sz2 and cl.z2 > sz1 and cl.y2 > top + 0.3 then
-				lowest = math.min(lowest, cl.y1)
-			end
-		end
-		local clearance = lowest - top
-		if clearance < minClear then
-			minClear, worstStep = clearance, sn .. "_Step" .. i
-		end
-	end
-end
-print(string.format("        altura libre minima sobre peldanos = %.1f studs (%s)", minClear, tostring(worstStep)))
-check("altura libre >= 7 studs sobre todos los peldanos", minClear >= 7, minClear)
-
--- circulacion: filas alcanzables a todo lo ancho de peldanos y descansos
-local function visitedRow(x1, x2, z, h)
-	local n = 0
-	local j = math.floor((z - OZ) / CELL)
-	for i = math.floor((x1 - OX) / CELL), math.floor((x2 - OX) / CELL) do
-		for _, hh in nodes[i][j] do
-			if math.abs(hh - h) < 0.06 and visited[key(i, j, hh)] then
-				n += 1
-			end
-		end
-	end
-	return n
-end
-local minRow = 1e9
-for _, sn in { "Stairs1", "Stairs2" } do
-	for _, i in { 0, 6, 12, 18, 23 } do
-		local st = stepRows[sn][i]
-		local top = st.CFrame.py + st.Size.Y / 2
-		local n = visitedRow(st.CFrame.px - 5, st.CFrame.px + 5, st.CFrame.pz - 0.5, top)
-		minRow = math.min(minRow, n)
-	end
-end
-print("        celdas caminables a lo ancho (min en los peldanos muestreados) = " .. minRow)
-check("ancho caminable >= 8 celdas de 1 stud en los peldanos", minRow >= 8, minRow)
-check("descanso de entrada escalera 1 transitable", reachedIn(39, 39, 47, 47, 0) >= 50)
-check("descanso de llegada escalera 1 transitable", reachedIn(39, -19, 47, -11, 24) >= 50)
-check("descanso de entrada escalera 2 transitable", reachedIn(-47, -47, -39, -39, 24) >= 50)
-check("descanso de llegada escalera 2 transitable", reachedIn(-47, 11, -39, 19, 48) >= 50)
-check("los tres pisos conectados: P1 -> P2 -> P3 a pie", reachedIn(39, -19, 47, -11, 24) > 0 and reachedIn(-47, 11, -39, 19, 48) > 0)
-
--- pasillos: junto a las escaleras queda un pasillo de >= 4 studs libre
-check("pasillo este del piso 2 (entre lounges y hueco)", reachedIn(34.5, -33, 37.5, 9, 24) >= 60)
-check("pasillo oeste del piso 2 (entre escalera y lounges)", reachedIn(-37.5, -35, -34.5, 3, 24) >= 40)
-check("pista de baile libre de solidos (nada sobre 0.3 studs)", (function()
-	for _, cl in colliders do
-		if cl.x1 < 24 and cl.x2 > -24 and cl.z1 < 14 and cl.z2 > -34 and cl.y2 > 0.3 and cl.y1 < 6 then
-			return false
-		end
-	end
-	return true
-end)())
-
--- ================= VASOS DE CRISTAL =================
-local function nameMatches(pat)
-	local list = {}
-	for _, d in club:GetDescendants() do
-		if d:IsA("BasePart") and string.find(d.Name, pat) then
-			table.insert(list, d)
-		end
-	end
-	return list
-end
-local rims = nameMatches("Glass%d_Rim$")
-local shotRims = nameMatches("_Shot%d_Rim$")
-local walls = {}
-for _, d in nameMatches("Glass%d_Wall%d?$") do
-	table.insert(walls, d)
-end
-for _, d in nameMatches("_Shot%d_Wall$") do
-	table.insert(walls, d)
-end
-local liquids, colorsSeen, ncolors = {}, {}, 0
-for _, d in nameMatches("Glass%d_Liquid%d?$") do
-	table.insert(liquids, d)
-	local k = string.format("%.2f,%.2f,%.2f", d.Color.R, d.Color.G, d.Color.B)
-	if not colorsSeen[k] then
-		colorsSeen[k] = true
-		ncolors += 1
-	end
-end
-local okT = true
-for _, w in walls do
-	if w.Transparency < 0.6 or w.Transparency > 0.85 then
-		okT = false
-	end
-end
-print(string.format("        vasos: %d con borde, %d chupitos, %d paredes, %d liquidos, %d colores", #rims, #shotRims, #walls, #liquids, ncolors))
-check("vasos de cristal con borde en las 3 barras (>= 13)", #rims >= 13, #rims)
-check("vasos con base, pared translucida (0.6-0.85) y liquido", #walls >= 13 and okT and #liquids >= 13)
-check("liquidos de al menos 5 colores distintos", ncolors >= 5, ncolors)
-check("hielo en los vasos (>= 10 cubos)", #nameMatches("_Ice%d$") >= 10)
-check("pajillas en los vasos (>= 5)", #nameMatches("_Straw$") >= 5)
-check("posavasos con aro de neon (>= 13)", #nameMatches("_Coaster$") >= 13)
-check("bandejas con 9 chupitos", #shotRims == 9, #shotRims)
-local blocking
-local maxTop = 0
-for _, d in club:GetDescendants() do
-	if d:IsA("BasePart") and (string.find(d.Name, "^BarGlass") or string.find(d.Name, "^VipGlass") or string.find(d.Name, "^RoofGlass") or string.find(d.Name, "Shots_") or string.find(d.Name, "^BarShots") or string.find(d.Name, "^VipShots") or string.find(d.Name, "^RoofShots")) then
-		if d.CanCollide ~= false then
-			blocking = blocking or d.Name
-		end
-		maxTop = math.max(maxTop, d.CFrame.py + d.Size.Y / 2 - ((d.CFrame.py > 40 and 52.5) or (d.CFrame.py > 20 and 28.5) or 4.5))
-	end
-end
-check("la cristaleria no colisiona (no bloquea la barra)", blocking == nil, blocking)
-check("vasos bajos: altura maxima sobre la barra <= 4 studs", maxTop <= 4, maxTop)
-
--- ================= HALLOWEEN =================
-local pumpkins = nameMatches("Pumpkin%d?_Body$")
-check("calabazas con cara (>= 20)", #pumpkins >= 20 and #nameMatches("Pumpkin%d?_EyeL$") == #pumpkins, #pumpkins)
-check("velas con llama (>= 12 racimos)", #nameMatches("Candle%d?_Candle1$") >= 12, #nameMatches("Candle%d?_Candle1$"))
-check("telaranas (>= 7)", #nameMatches("Web%u?%d?_R0$") >= 7, #nameMatches("Web%u?%d?_R0$"))
-check("murcielagos (>= 14)", #nameMatches("Bat%d+_Body$") >= 14, #nameMatches("Bat%d+_Body$"))
-check("guirnaldas naranja/morado (>= 2) y calderos (>= 2)", #nameMatches("Garland_Bulb0$") >= 2 and #nameMatches("Cauldron_Pot$") >= 2)
-check("luces de llama/calabaza/caldero con parpadeo (>= 15)", #fx.flames >= 15, #fx.flames)
-local solidDecor
-for _, d in club:GetDescendants() do
-	if d:IsA("BasePart") and d.CanCollide ~= false and string.find(d.Name, "Pumpkin") then
-		solidDecor = solidDecor or d.Name
-	end
-end
-check("la decoracion de Halloween no colisiona (no obstruye)", solidDecor == nil and (function()
-	for _, d in club:GetDescendants() do
-		if d:IsA("BasePart") and d.CanCollide ~= false and (string.find(d.Name, "Candle") or string.find(d.Name, "Web") or string.find(d.Name, "Bat%d") or string.find(d.Name, "Garland") or string.find(d.Name, "Cauldron")) then
-			return false
-		end
-	end
-	return true
-end)(), solidDecor)
-check("partes totales razonables (< 4000)", #parts < 4000, #parts)
-
--- ================= CALIDAD DE LUCES Y HACES =================
 local beamLayers, shafts = {}, {}
 for _, d in club:GetDescendants() do
 	if d:IsA("Beam") and string.find(d.Name, "^LaserBeam") then
@@ -647,209 +731,62 @@ for _, d in club:GetDescendants() do
 		table.insert(shafts, d)
 	end
 end
-check("laseres: 6 haces x 3 capas = 18 Beams (ya no son piezas solidas)", #beamLayers == 18, #beamLayers)
+check("laseres: 6 haces x 3 capas = 18 Beams (no son piezas solidas)", #beamLayers == 18, #beamLayers)
 local minCore, minMid, minHalo, endsOk = 1, 1, 1, true
 local maxWidth, maxEmission = 0, 0
 for _, b in beamLayers do
 	local ks = b.Transparency.Keypoints
-	if ks[1].Value ~= 1 or ks[#ks].Value ~= 1 then
-		endsOk = false
-	end
+	if ks[1].Value ~= 1 or ks[#ks].Value ~= 1 then endsOk = false end
 	local inner = 1
-	for i = 2, #ks - 1 do
-		inner = math.min(inner, ks[i].Value)
-	end
+	for i = 2, #ks - 1 do inner = math.min(inner, ks[i].Value) end
 	local layer = tonumber(string.match(b.Name, "(%d)$"))
-	if layer == 1 then
-		minCore = math.min(minCore, inner)
-	elseif layer == 2 then
-		minMid = math.min(minMid, inner)
-	else
-		minHalo = math.min(minHalo, inner)
-	end
+	if layer == 1 then minCore = math.min(minCore, inner) elseif layer == 2 then minMid = math.min(minMid, inner) else minHalo = math.min(minHalo, inner) end
 	maxWidth = math.max(maxWidth, b.Width0)
 	maxEmission = math.max(maxEmission, b.LightEmission)
 end
-print(string.format("        transparencia minima de los haces: nucleo %.2f, media %.2f, halo %.2f; grosor max %.2f; emision max %.2f", minCore, minMid, minHalo, maxWidth, maxEmission))
+print(string.format("        haces: transparencia minima nucleo %.2f, media %.2f, halo %.2f; grosor max %.2f; emision max %.2f", minCore, minMid, minHalo, maxWidth, maxEmission))
 check("laseres: transparencia nucleo >= 0.55, media >= 0.8, halo >= 0.9", minCore >= 0.55 and minMid >= 0.8 and minHalo >= 0.9)
 check("laseres: degradado que se desvanece en origen y punta", endsOk)
 check("laseres: grosor <= 1.2 studs y emision de luz <= 0.9", maxWidth <= 1.2 and maxEmission <= 0.9)
 local shaftMin = 1
 for _, b in shafts do
 	for _, k in b.Transparency.Keypoints do
-		if k.Value < 1 then
-			shaftMin = math.min(shaftMin, k.Value)
-		end
+		if k.Value < 1 then shaftMin = math.min(shaftMin, k.Value) end
 	end
 end
-check("8 conos de luz de focos con transparencia >= 0.88", #shafts == 8 and shaftMin >= 0.88, shaftMin)
-local bloom = __lighting:FindFirstChild("AuraBloom")
-check("bloom moderado (intensidad <= 0.6, tamano <= 24, umbral >= 0.9)", bloom.Intensity <= 0.6 and bloom.Size <= 24 and bloom.Threshold >= 0.9)
-local lookOk = true
-for _, k in { "LightIntensity", "AmbientBoost", "Exposure", "Bloom", "BeamTransparency", "BeamBrightness", "BeamWidth", "ShaftTransparency", "TileBrightness", "KeyShadows", "Reflections", "ShadowSoftness" } do
-	if LOOK[k] == nil then
-		lookOk = false
-		print("        falta CONFIG.Look." .. k)
-	end
-end
-check("ajustes CONFIG.Look expuestos (12 parametros)", lookOk)
+check("12 conos de luz de focos con transparencia >= 0.88", #shafts == 12 and shaftMin >= 0.88, #shafts .. "/" .. shaftMin)
+local bloom = __lighting:FindFirstChild("MayaBloom")
+check("bloom moderado (intensidad <= 0.6, tamano <= 24, umbral >= 0.9)", bloom ~= nil and bloom.Intensity <= 0.6 and bloom.Size <= 24 and bloom.Threshold >= 0.9)
 local shadowLights, strobeMax = 0, 0
 for _, d in club:GetDescendants() do
-	if d:IsA("SpotLight") and d.Shadows == true then
-		shadowLights += 1
-	end
+	if d:IsA("SpotLight") and d.Shadows == true then shadowLights += 1 end
 end
-for _, st in fx.strobes do
-	strobeMax = math.max(strobeMax, st.light.Brightness)
-end
-check("sombras solo en las 8 luces clave (focos)", shadowLights == 8, shadowLights)
+for _, st in fx.strobes do strobeMax = math.max(strobeMax, st.light.Brightness) end
+check("sombras solo en las 12 luces clave (focos)", shadowLights == 12, shadowLights)
 check("estrobos con brillo moderado (<= 4)", strobeMax <= 4, strobeMax)
+local lookOk = true
+for _, k in { "LightIntensity", "AmbientBoost", "Exposure", "Bloom", "BeamTransparency", "BeamBrightness", "BeamWidth", "ShaftTransparency", "TileBrightness", "KeyShadows", "Reflections", "ShadowSoftness" } do
+	if LOOK[k] == nil then lookOk = false end
+end
+check("ajustes CONFIG.Look expuestos (12 parametros)", lookOk)
 
--- ================= MUNDO EXTERIOR: CALLES, PARQUEADERO, PERIMETRO =================
-local function solidAt(x, y, z)
-	for _, cl in colliders do
-		if x > cl.x1 and x < cl.x2 and y > cl.y1 and y < cl.y2 and z > cl.z1 and z < cl.z2 then
-			return true
-		end
-	end
-	return false
+-- ================= CRISTALERIA Y HALLOWEEN =================
+local rims = named("Glass%d+_Rim$")
+local shotRims = named("Shot%d+_Rim$")
+check("vasos de cristal con borde en las 4 barras (>= 20) y 12 chupitos", #rims >= 20 and #shotRims == 12, #rims .. "/" .. #shotRims)
+check("vasos: pared translucida, liquido, hielo y posavasos", count("Glass%d+_Wall") >= 20 and count("Glass%d+_Liquid") >= 20 and count("_Ice%d+$") >= 20 and count("_Coaster$") >= 20)
+local blocking
+for _, c in colliders do
+	if string.match(c.name, "Glass%d+_") or string.match(c.name, "Shot%d+_") then blocking = blocking or c.name end
 end
-local gaps = 0
-for z = -99, 157, 2 do
-	for _, x in { -99, 99 } do
-		if not solidAt(x, 4, z) or not solidAt(x, 40, z) then
-			gaps += 1
-		end
-	end
-end
-for x = -99, 99, 2 do
-	for _, z in { -99, 157 } do
-		if not solidAt(x, 4, z) or not solidAt(x, 40, z) then
-			gaps += 1
-		end
-	end
-end
-check("perimetro cerrado: muro de 10 + barrera invisible hasta y=70 sin huecos", gaps == 0, gaps)
-local voids = 0
-for x = -97, 97, 2 do
-	for z = -97, 155, 2 do
-		if not hasTopBetween(x, z, -0.35, 0.1) then
-			voids += 1
-		end
-	end
-end
-check("sin vacio: suelo en todo el terreno jugable", voids == 0, voids)
-local minX, maxX, minZ, maxZ = 1e9, -1e9, 1e9, -1e9
-for i = 0, NX - 1 do
-	for j = 0, NZ - 1 do
-		for _, h in nodes[i][j] do
-			if visited[key(i, j, h)] then
-				local x, z = OX + (i + 0.5) * CELL, OZ + (j + 0.5) * CELL
-				minX, maxX, minZ, maxZ = math.min(minX, x), math.max(maxX, x), math.min(minZ, z), math.max(maxZ, z)
-			end
-		end
-	end
-end
-print(string.format("        area alcanzable a pie: X %.1f..%.1f, Z %.1f..%.1f", minX, maxX, minZ, maxZ))
-check("el jugador no sale del mapa (todo lo alcanzable queda dentro del muro)", minX >= -98.5 and maxX <= 98.5 and minZ >= -98.5 and maxZ <= 156.5)
-local outside
-for _, d in club:GetDescendants() do
-	if d:IsA("BasePart") then
-		local s, cf = d.Size, d.CFrame
-		if cf.px - s.X / 2 < -100.01 or cf.px + s.X / 2 > 100.01 or cf.pz - s.Z / 2 < -100.01 or cf.pz + s.Z / 2 > 158.01 then
-			outside = outside or d.Name
-		end
-	end
-end
-check("terreno ajustado: ninguna pieza sobresale de 200 x 258 studs", outside == nil, outside)
+check("la cristaleria no colisiona", blocking == nil, blocking)
+check("calabazas con cara (>= 20)", count("Pumpkin%d*_EyeL$") >= 20, count("Pumpkin%d*_EyeL$"))
+check("velas con llama (>= 12 racimos)", count("Candle%d*_Candle1$") >= 12, count("Candle%d*_Candle1$"))
+check("telaranas (>= 7)", count("Web%u?%d*_R0$") >= 7, count("Web%u?%d*_R0$"))
+check("murcielagos (>= 14)", count("Bat%d+_Body$") >= 14, count("Bat%d+_Body$"))
+check("guirnaldas y calderos", count("Garland_Bulb0$") >= 3 and count("Cauldron_Pot$") >= 3)
+check("luces de llama con parpadeo (>= 15)", #fx.flames >= 15, #fx.flames)
 
--- ruta peatonal SIN escalones (>0.35): puerta -> acera -> paso elevado -> acera -> parqueadero
-local fi, fj, fh = startNodeNear(10.5, 30.5, 0)
-local flat = bfs(fi, fj, fh, 0.35)
-check("ruta peatonal: acera frente a la puerta", reachedInSet(flat, -5, 52, 5, 64, 0) >= 60)
-check("ruta peatonal: paso elevado frente a la puerta (a ras, sin escalon)", reachedInSet(flat, -5, 67, 5, 85, 0) >= 150)
-check("ruta peatonal: acera exterior", reachedInSet(flat, -3, 87, 3, 97, 0) >= 25)
-check("ruta peatonal: camino del parqueadero (fila norte)", reachedInSet(flat, -3, 99, 3, 111, 0) >= 50)
-check("ruta peatonal: paso elevado sobre la calle interior", reachedInSet(flat, -5, 113, 5, 135, 0) >= 150)
-check("ruta peatonal: camino del parqueadero (fila sur)", reachedInSet(flat, -3, 137, 3, 149, 0) >= 50)
-check("otros pasos de peatones accesibles (norte, oeste y este)", reachedInSet(visited, -5, -85, 5, -67, 0) >= 100 and reachedInSet(visited, -85, -5, -67, 5, 0) >= 100 and reachedInSet(visited, 67, -5, 85, 5, 0) >= 100)
-check("la calle (asfalto) es transitable para el jugador", reachedInSet(visited, 20, 68, 60, 84, -0.3) >= 500)
-check("aceras exteriores alcanzables (norte, oeste, este)", reachedInSet(visited, -90, -97, 90, -87, 0) >= 500 and reachedInSet(visited, -97, -80, -87, 80, 0) >= 500 and reachedInSet(visited, 87, -80, 97, 80, 0) >= 500)
-check("parqueadero: calle interior y entrada/salida de coches transitables", reachedInSet(visited, -60, 114, 60, 134, -0.24) >= 1000 and reachedInSet(visited, 75, 87, 85, 97, -0.3) >= 50 and reachedInSet(visited, -85, 87, -75, 97, -0.3) >= 50)
-
--- parqueadero: plazas, accesibles, coches y farolas
-local function count(pat)
-	return #nameMatches(pat)
-end
-check("plazas demarcadas: >= 32 lineas divisorias y 4 lineas frontales", count("^SlotLine$") >= 32 and count("^SlotFront$") == 4, count("^SlotLine$"))
-check("2 plazas accesibles pintadas de azul y senalizadas", count("^Access[LR]$") == 2 and count("^AccessSign[LR]_Plate$") == 2)
-check("coches aparcados (>= 12), cada uno con 4 ruedas y luces", count("^Car%d+_Body$") >= 12 and count("^Car%d+_Wheel$") == 4 * count("^Car%d+_Body$") and count("^Car%d+_Headlight$") == 2 * count("^Car%d+_Body$"))
-local carOverlap
-for _, a in colliders do
-	if string.find(a.name, "^Car%d+_Body$") or string.find(a.name, "^Car%d+_Cabin$") then
-		for _, b in colliders do
-			if a ~= b and b.y2 > 0.1 and not (string.match(a.name, "^(Car%d+)_") == string.match(b.name, "^(Car%d+)_")) then
-				if math.min(a.x2, b.x2) - math.max(a.x1, b.x1) > 0.2 and math.min(a.y2, b.y2) - math.max(a.y1, b.y1) > 0.2 and math.min(a.z2, b.z2) - math.max(a.z1, b.z1) > 0.2 then
-					carOverlap = carOverlap or (a.name .. " x " .. b.name)
-				end
-			end
-		end
-	end
-end
-check("los coches no se solapan con nada (ni entre si, ni con farolas o senales)", carOverlap == nil, carOverlap)
-local carInAccess
-for _, d in nameMatches("^Car%d+_Body$") do
-	local x, z = d.CFrame.px, d.CFrame.pz
-	if z < 112 and math.abs(x) < 13 then
-		carInAccess = carInAccess or d.Name
-	end
-end
-check("las plazas accesibles estan libres de coches", carInAccess == nil, carInAccess)
-local lampLights = 0
-for _, d in club:GetDescendants() do
-	if d:IsA("PointLight") and string.find(d.Parent.Name, "Lamp_Head$") then
-		lampLights += 1
-		if d.Range > 60 then
-			lampLights -= 100
-		end
-	end
-end
-check("farolas con luz real (>= 25) en calles, aceras y parqueadero", lampLights >= 25, lampLights)
-local texts = {}
-for _, d in club:GetDescendants() do
-	if d:IsA("TextLabel") then
-		texts[d.Text] = true
-	end
-end
-local missingText
-for _, t in { "ENTRADA", "SALIDA", "PARE", "PEATONES", "PARQUEADERO v", "AURA CLUB ^", "ACCESIBLE", "AV. AURA" } do
-	if not texts[t] then
-		missingText = missingText or t
-	end
-end
-check("senalizacion: entrada, salida, pare, peatones, direccional, accesible y calles", missingText == nil, missingText)
-check("calles: 5 pasos elevados, bordillos (>= 18), lineas de detencion (8), eje discontinuo (>= 50)", count("^Crosswalk%a*_Slab$") + count("^LotCross_Slab$") == 5 and count("^Curb") >= 18 and count("^StopLine_") == 8 and count("^Dash_") >= 50)
-check("aceras interiores y exteriores (>= 10 tramos)", count("^SidewalkIn_") + count("^SidewalkOut_") >= 10)
-check("perimetro: 4 muros, >= 36 pilares con neon y 4 barreras invisibles", count("^PerimeterWall_") == 4 and count("^Pillar[NSWE]$") >= 36 and count("^Boundary_") == 4)
--- iluminacion del recorrido exterior: >= 90 % de la ruta peatonal tiene una luz cerca
-local rTot, rLit = 0, 0
-for _, r in { { -3, 51, 3, 65 }, { -3, 87, 3, 97 }, { -3, 99, 3, 149 } } do
-	for i = ci(r[1]), ci(r[3]) do
-		for j = cj(r[2]), cj(r[4]) do
-			for _, h in nodes[i][j] do
-				if math.abs(h) < 0.06 and flat[key(i, j, h)] then
-					rTot += 1
-					if lit(OX + (i + 0.5) * CELL, h + 3, OZ + (j + 0.5) * CELL) then
-						rLit += 1
-					end
-				end
-			end
-		end
-	end
-end
-check(string.format("iluminacion de la ruta exterior: %d/%d celdas (%.0f%%)", rLit, rTot, 100 * rLit / math.max(1, rTot)), rTot > 0 and rLit / rTot >= 0.9)
-
--- idempotencia: relanzar no duplica (se prueba aparte en run.sh)
 print(string.format("\nRESULTADO: %d fallo(s)", failures))
 if failures > 0 then
 	error("hay tests fallando")

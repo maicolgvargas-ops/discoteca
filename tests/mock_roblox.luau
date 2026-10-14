@@ -56,9 +56,19 @@ function Color3.fromHSV(h, s, v)
 	return Color3.new(r, g, b)
 end
 
+local UDim = {}
+function UDim.new(s, o)
+	return { Scale = s, Offset = o, __type = "UDim" }
+end
 local UDim2 = {}
 function UDim2.fromScale(x, y)
 	return { X = x, Y = y, __type = "UDim2" }
+end
+function UDim2.fromOffset(x, y)
+	return { OX = x, OY = y, __type = "UDim2" }
+end
+function UDim2.new(xs, xo, ys, yo)
+	return { X = xs, XO = xo, Y = ys, YO = yo, __type = "UDim2" }
 end
 
 local ColorSequence = {}
@@ -178,12 +188,13 @@ local function enumOf(name, members)
 	})
 end
 local Enum = {
-	Material = enumOf("Material", { "SmoothPlastic", "Neon", "Concrete", "Metal", "Glass", "Marble", "Wood", "WoodPlanks", "Fabric", "Slate", "Asphalt", "Grass" }),
+	Material = enumOf("Material", { "SmoothPlastic", "Neon", "Concrete", "Metal", "Glass", "Marble", "Wood", "WoodPlanks", "Fabric", "Slate", "Asphalt", "Grass", "Pavement", "Granite" }),
 	PartType = enumOf("PartType", { "Block", "Ball", "Cylinder" }),
 	SurfaceType = enumOf("SurfaceType", { "Smooth" }),
 	NormalId = enumOf("NormalId", { "Front", "Bottom" }),
 	SurfaceGuiSizingMode = enumOf("SurfaceGuiSizingMode", { "PixelsPerStud" }),
-	Font = enumOf("Font", { "GothamBlack" }),
+	Font = enumOf("Font", { "GothamBlack", "GothamMedium" }),
+	ScaleType = enumOf("ScaleType", { "Fit" }),
 	RollOffMode = enumOf("RollOffMode", { "InverseTapered" }),
 }
 
@@ -208,13 +219,20 @@ local CLASSES = {
 	Model = { props = { "Name", "Parent" } },
 	Folder = { props = { "Name", "Parent" } },
 	SurfaceGui = { props = { "Name", "Parent", "Face", "SizingMode", "PixelsPerStud", "LightInfluence", "Brightness", "AlwaysOnTop" } },
-	TextLabel = { props = { "Name", "Parent", "BackgroundTransparency", "Size", "Text", "TextScaled", "Font", "TextColor3" } },
+	TextLabel = { props = { "Name", "Parent", "BackgroundTransparency", "Size", "Position", "Text", "TextScaled", "Font", "TextColor3", "TextStrokeColor3", "TextStrokeTransparency" } },
 	PointLight = { props = LIGHT },
 	SpotLight = { props = concat(LIGHT, { "Face", "Angle" }) },
 	Sound = { props = { "Name", "Parent", "SoundId", "Looped", "Volume", "RollOffMode", "RollOffMinDistance", "RollOffMaxDistance", "Playing" } },
 	Fire = { props = { "Name", "Parent", "Size", "Heat", "Color", "SecondaryColor", "Enabled" } },
 	BloomEffect = { props = { "Name", "Parent", "Intensity", "Size", "Threshold" } },
 	ColorCorrectionEffect = { props = { "Name", "Parent", "Contrast", "Saturation", "TintColor", "Brightness" } },
+	StarterGui = { props = { "Name", "Parent" } },
+	ScreenGui = { props = { "Name", "Parent", "ResetOnSpawn", "IgnoreGuiInset", "DisplayOrder" } },
+	Frame = { props = { "Name", "Parent", "AnchorPoint", "Position", "Size", "BackgroundColor3", "BackgroundTransparency", "BorderSizePixel" } },
+	ImageLabel = { props = { "Name", "Parent", "BackgroundTransparency", "Image", "ScaleType", "Position", "Size", "AnchorPoint", "ImageTransparency" } },
+	UICorner = { props = { "Name", "Parent", "CornerRadius" } },
+	UIStroke = { props = { "Name", "Parent", "Color", "Thickness", "Transparency" } },
+	UIGradient = { props = { "Name", "Parent", "Color", "Rotation" } },
 	Attachment = { props = { "Name", "Parent", "Position", "CFrame" } },
 	Beam = { props = { "Name", "Parent", "Attachment0", "Attachment1", "Color", "Transparency", "Width0", "Width1", "LightEmission", "LightInfluence", "FaceCamera", "Segments", "Enabled", "CurveSize0", "CurveSize1", "ZOffset" } },
 	Smoke = { props = { "Name", "Parent", "Size", "Opacity", "RiseVelocity", "Color", "Enabled" } },
@@ -362,6 +380,7 @@ local __heartbeat = {}
 local workspace = newInstance("Workspace")
 local __lighting = newInstance("Lighting")
 local __runService = newInstance("RunService")
+local __starterGui = newInstance("StarterGui")
 local heartbeatSignal = {
 	Connect = function(_, fn)
 		local entry = { fn = fn, active = true }
@@ -394,6 +413,8 @@ local game = {
 			return __lighting
 		elseif name == "RunService" then
 			return __runService
+		elseif name == "StarterGui" then
+			return __starterGui
 		end
 		error("GetService('" .. tostring(name) .. "') no soportado en el mock")
 	end,
