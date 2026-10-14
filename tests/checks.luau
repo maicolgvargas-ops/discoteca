@@ -359,6 +359,60 @@ check("la bola de espejos gira", math.abs(first.CFrame.px - x0) + math.abs(first
 local screen = club:FindFirstChild("Floor1"):FindFirstChild("DJScreen")
 check("pantalla LED con texto", screen ~= nil and #screen:GetChildren() > 0)
 
+-- piezas flotantes: toda parte visible debe tocar (+-0.08) a otra -----------
+local boxes = {}
+for _, d in club:GetDescendants() do
+	if d:IsA("BasePart") and (d.Transparency or 0) < 1 and d.Parent.Name ~= "Effects" then
+		local s, cf, r = d.Size, d.CFrame, d.CFrame.r
+		local hx = (math.abs(r[1]) * s.X + math.abs(r[2]) * s.Y + math.abs(r[3]) * s.Z) / 2 + 0.08
+		local hy = (math.abs(r[4]) * s.X + math.abs(r[5]) * s.Y + math.abs(r[6]) * s.Z) / 2 + 0.08
+		local hz = (math.abs(r[7]) * s.X + math.abs(r[8]) * s.Y + math.abs(r[9]) * s.Z) / 2 + 0.08
+		table.insert(boxes, { n = d.Name, x1 = cf.px - hx, x2 = cf.px + hx, y1 = cf.py - hy, y2 = cf.py + hy, z1 = cf.pz - hz, z2 = cf.pz + hz })
+	end
+end
+local floating, seenName = {}, {}
+for i, a in boxes do
+	local touches = false
+	for j, b in boxes do
+		if i ~= j and a.x1 <= b.x2 and a.x2 >= b.x1 and a.y1 <= b.y2 and a.y2 >= b.y1 and a.z1 <= b.z2 and a.z2 >= b.z1 then
+			touches = true
+			break
+		end
+	end
+	if not touches and not seenName[a.n] then
+		seenName[a.n] = true
+		table.insert(floating, string.format("%s@(%.0f,%.0f,%.0f)", a.n, (a.x1 + a.x2) / 2, (a.y1 + a.y2) / 2, (a.z1 + a.z2) / 2))
+	end
+end
+check("ninguna pieza visible flota sin apoyo", #floating == 0, table.concat(floating, ", "))
+
+-- estrobos apagados al construir y solo se encienden en rafagas
+local strobesOn = 0
+for _, st in fx.strobes do
+	if st.light.Enabled ~= false then
+		strobesOn += 1
+	end
+end
+check("estrobos: todas las luces nacen apagadas", strobesOn == 0, strobesOn)
+
+-- ID de audio opcional: nunca se inventa uno; normaliza formatos validos
+check("MusicId vacio por defecto (sin ID inventado)", CONFIG.MusicId == "")
+check("normalizeAudioId acepta numero, texto y rbxassetid", normalizeAudioId(123) == "rbxassetid://123" and normalizeAudioId(" 456 ") == "rbxassetid://456" and normalizeAudioId("rbxassetid://7") == "rbxassetid://7" and normalizeAudioId(nil) == "" and normalizeAudioId("") == "")
+
+-- presupuesto de red: escrituras de propiedades por segundo en regimen estable
+__countWrites = true
+__writes = 0
+for _ = 1, 10 * 30 do
+	fireHeartbeat(1 / 30)
+end
+__countWrites = false
+local perSec = __writes / 10
+print(string.format("        escrituras de propiedades/s (animacion) = %.0f", perSec))
+check("animacion < 1700 escrituras/s", perSec < 1700, perSec)
+
+-- reejecutar no apila conexiones: la anterior se desconecta
+check("existe handle de conexion para limpieza al relanzar", _G.AuraClubConnection ~= nil)
+
 -- idempotencia: relanzar no duplica (se prueba aparte en run.sh)
 print(string.format("\nRESULTADO: %d fallo(s)", failures))
 if failures > 0 then

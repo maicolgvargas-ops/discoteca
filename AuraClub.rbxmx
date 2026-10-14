@@ -1,0 +1,1207 @@
+<?xml version="1.0" encoding="utf-8"?>
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+	<Item class="Script" referent="RBX0">
+		<Properties>
+			<string name="Name">AuraClub</string>
+			<token name="RunContext">0</token>
+			<ProtectedString name="Source"><![CDATA[--[[
+	AURA CLUB - discoteca de 3 pisos generada 100% por codigo (Luau).
+
+	Piso 1: hall + pista LED + escenario DJ + barra + booths + lasers
+	Piso 2: VIP lounge de cristal con barra, sofas y balcon sobre la pista
+	Piso 3: rooftop con DJ, barra, piscina, fire pits y loungers
+
+	Coordenadas: edificio de 100x100 studs centrado en (0,0,0).
+	Suelo de cada piso (parte superior): Y = 0 / 24 / 48. Entrada por el sur (+Z).
+	Escaleras: P1->P2 al este, P2->P3 al oeste.
+
+	Ponlo en ServerScriptService y dale a Play.
+]]
+
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
+
+local CONFIG = {
+	Name = "AuraClub",
+	-- OPCIONAL. ID de un audio que TENGAS permiso de usar. Acepta "rbxassetid://123", "123" o 123.
+	-- Vacio = sin musica (el club funciona igual). No se incluye ningun ID por defecto.
+	MusicId = "",
+	MusicVolume = 2,
+	-- Borra el Baseplate y el SpawnLocation de la plantilla (tapan/duplican el suelo del club)
+	RemoveTemplateObjects = true,
+	TileCount = 12, -- pista LED de TileCount x TileCount baldosas
+	LowPerformance = false, -- true: animaciones menos frecuentes (equipos o servidores justos)
+	Boundary = true, -- muros invisibles alrededor de la calle (evita caer al vacio)
+}
+
+local function normalizeAudioId(id)
+	if type(id) == "number" then
+		return "rbxassetid://" .. math.floor(id)
+	end
+	if type(id) ~= "string" then
+		return ""
+	end
+	local clean = string.gsub(id, "%s+", "")
+	if string.match(clean, "^%d+$") then
+		return "rbxassetid://" .. clean
+	end
+	return clean
+end
+CONFIG.MusicId = normalizeAudioId(CONFIG.MusicId)
+
+-- segundos entre actualizaciones de cada efecto (cada cambio de propiedad se replica a los clientes)
+local RATES = CONFIG.LowPerformance and { fast = 0.1, tiles = 0.5, glows = 0.5, mirror = 0.25 }
+	or { fast = 0.05, tiles = 0.25, glows = 0.25, mirror = 0.1 }
+
+local FLOOR_Y = { 0, 24, 48 }
+local FLOOR_H = 22 -- altura libre entre piso y techo (losa de 2 studs)
+local BEAM_LEN = 43
+local BEAM_PITCH = math.rad(-68)
+
+local C = {
+	black = Color3.fromRGB(10, 8, 18),
+	dark = Color3.fromRGB(24, 19, 40),
+	wall = Color3.fromRGB(32, 25, 52),
+	floor = Color3.fromRGB(18, 13, 30),
+	deck = Color3.fromRGB(46, 38, 50),
+	purple = Color3.fromRGB(150, 60, 255),
+	magenta = Color3.fromRGB(255, 40, 170),
+	cyan = Color3.fromRGB(0, 230, 255),
+	blue = Color3.fromRGB(70, 100, 255),
+	white = Color3.fromRGB(255, 255, 255),
+	gold = Color3.fromRGB(255, 190, 80),
+	velvet = Color3.fromRGB(95, 15, 70),
+	glass = Color3.fromRGB(150, 200, 255),
+	wood = Color3.fromRGB(70, 45, 35),
+	green = Color3.fromRGB(30, 120, 60),
+	fire = Color3.fromRGB(255, 140, 40),
+	sofaWarm = Color3.fromRGB(176, 78, 34),
+	warmWhite = Color3.fromRGB(255, 214, 170),
+}
+local M = Enum.Material
+local DECOR = { CanCollide = false, CastShadow = false }
+local BOTTLES = { C.magenta, C.cyan, C.gold, C.purple, C.green, C.blue }
+
+------------------------------------------------------------------------
+-- Limpieza de ejecuciones anteriores
+------------------------------------------------------------------------
+local old = Workspace:FindFirstChild(CONFIG.Name)
+if old then
+	old:Destroy()
+end
+if CONFIG.RemoveTemplateObjects then
+	for _, n in { "Baseplate", "SpawnLocation" } do
+		local o = Workspace:FindFirstChild(n)
+		if o and o:IsA("BasePart") then
+			o:Destroy()
+		end
+	end
+end
+
+local club = Instance.new("Model")
+club.Name = CONFIG.Name
+
+local folders = {}
+for _, n in { "Exterior", "Floor1", "Floor2", "Floor3", "Stairs", "Effects" } do
+	local f = Instance.new("Folder")
+	f.Name = n
+	f.Parent = club
+	folders[n] = f
+end
+
+-- registros para las animaciones
+local fx = {
+	tiles = {}, -- baldosas de la pista
+	glows = {}, -- neones que ciclan de color (y sus luces)
+	signs = {}, -- carteles que ciclan de color
+	beams = {}, -- lasers
+	strobes = {}, -- estrobos
+	screens = {}, -- pantalla LED del DJ
+	mirror = {}, -- facetas de la bola de espejos
+}
+local lightCount = 0
+
+------------------------------------------------------------------------
+-- Helpers de construccion
+------------------------------------------------------------------------
+local function P(parent, name, cf, size, color, material, extra)
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Anchored = true
+	p.Size = size
+	p.CFrame = cf
+	p.Color = color
+	p.Material = material or M.SmoothPlastic
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	if extra then
+		for k, v in extra do
+			p[k] = v
+		end
+	end
+	p.Parent = parent
+	return p
+end
+
+-- caja por limites (x1,y1,z1) -> (x2,y2,z2)
+local function B(parent, name, x1, y1, z1, x2, y2, z2, color, material, extra)
+	return P(
+		parent,
+		name,
+		CFrame.new((x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2),
+		Vector3.new(math.abs(x2 - x1), math.abs(y2 - y1), math.abs(z2 - z1)),
+		color,
+		material,
+		extra
+	)
+end
+
+local function withShape(shape, extra)
+	local e = { Shape = shape }
+	if extra then
+		for k, v in extra do
+			e[k] = v
+		end
+	end
+	return e
+end
+
+-- cilindro vertical (eje Y)
+local function cyl(parent, name, x, y, z, height, diameter, color, material, extra)
+	return P(
+		parent,
+		name,
+		CFrame.new(x, y, z) * CFrame.Angles(0, 0, math.pi / 2),
+		Vector3.new(height, diameter, diameter),
+		color,
+		material,
+		withShape(Enum.PartType.Cylinder, extra)
+	)
+end
+
+-- cilindro con eje Z (mirando al norte/sur)
+local function cylZ(parent, name, x, y, z, length, diameter, color, material, extra)
+	return P(
+		parent,
+		name,
+		CFrame.new(x, y, z) * CFrame.Angles(0, math.pi / 2, 0),
+		Vector3.new(length, diameter, diameter),
+		color,
+		material,
+		withShape(Enum.PartType.Cylinder, extra)
+	)
+end
+
+local function ball(parent, name, x, y, z, diameter, color, material, extra)
+	return P(
+		parent,
+		name,
+		CFrame.new(x, y, z),
+		Vector3.new(diameter, diameter, diameter),
+		color,
+		material,
+		withShape(Enum.PartType.Ball, extra)
+	)
+end
+
+local function addLight(part, color, range, spot, brightness)
+	local l
+	if spot then
+		l = Instance.new("SpotLight")
+		l.Face = Enum.NormalId.Bottom
+		l.Angle = 70
+	else
+		l = Instance.new("PointLight")
+	end
+	l.Color = color
+	l.Range = range
+	l.Brightness = brightness or 1.2
+	l.Shadows = false
+	l.Parent = part
+	lightCount += 1
+	return l
+end
+
+-- neon (decorativo, sin colision). opts: cycle, phase, light, spot, brightness
+local function glow(parent, name, x1, y1, z1, x2, y2, z2, color, opts)
+	local p = B(parent, name, x1, y1, z1, x2, y2, z2, color, M.Neon, DECOR)
+	if opts then
+		local light
+		if opts.light then
+			light = addLight(p, color, opts.light, opts.spot, opts.brightness)
+		end
+		if opts.cycle then
+			table.insert(fx.glows, { part = p, light = light, phase = opts.phase or 0 })
+		end
+	end
+	return p
+end
+
+-- estrobo: empieza APAGADO (la luz se enciende solo durante las rafagas)
+local function addStrobe(parent, name, x1, y1, z1, x2, y2, z2)
+	local s = B(parent, name, x1, y1, z1, x2, y2, z2, C.dark, M.Neon, DECOR)
+	local l = addLight(s, C.white, 40, true, 6)
+	l.Enabled = false
+	table.insert(fx.strobes, { part = s, light = l, on = false })
+end
+
+local function cycleColor(t, phase)
+	local a = 0.5 + 0.5 * math.sin(t * 0.6 + phase)
+	return Color3.fromHSV(0.5 + 0.4 * a, 0.85, 1)
+end
+
+-- cartel con SurfaceGui. (dx,dz) = hacia donde mira el cartel
+local function sign(parent, name, cx, cy, cz, w, h, dx, dz, text, color, cycle)
+	local pos = Vector3.new(cx, cy, cz)
+	local p = P(
+		parent,
+		name,
+		CFrame.lookAt(pos, pos + Vector3.new(dx, 0, dz)),
+		Vector3.new(w, h, 0.5),
+		C.black,
+		M.SmoothPlastic,
+		DECOR
+	)
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 30
+	gui.LightInfluence = 0
+	gui.Parent = p
+	local tl = Instance.new("TextLabel")
+	tl.BackgroundTransparency = 1
+	tl.Size = UDim2.fromScale(1, 1)
+	tl.Text = text
+	tl.TextScaled = true
+	tl.Font = Enum.Font.GothamBlack
+	tl.TextColor3 = color
+	tl.Parent = gui
+	if cycle then
+		table.insert(fx.signs, { label = tl, phase = #fx.signs * 0.7 })
+	end
+	return p, tl
+end
+
+-- losa rectangular con huecos. holes = { {x1,z1,x2,z2}, ... }
+local function slab(parent, name, x1, z1, x2, z2, top, thick, holes, color, material, extra)
+	local xs, zs = { x1, x2 }, { z1, z2 }
+	for _, h in holes do
+		table.insert(xs, h[1])
+		table.insert(xs, h[3])
+		table.insert(zs, h[2])
+		table.insert(zs, h[4])
+	end
+	table.sort(xs)
+	table.sort(zs)
+	local n = 0
+	for i = 1, #xs - 1 do
+		for j = 1, #zs - 1 do
+			local ax, bx, az, bz = xs[i], xs[i + 1], zs[j], zs[j + 1]
+			if bx - ax > 0.01 and bz - az > 0.01 then
+				local cx, cz = (ax + bx) / 2, (az + bz) / 2
+				local inHole = false
+				for _, h in holes do
+					if cx > h[1] and cx < h[3] and cz > h[2] and cz < h[4] then
+						inHole = true
+						break
+					end
+				end
+				if not inHole then
+					n += 1
+					B(parent, name .. "_" .. n, ax, top - thick, az, bx, top, bz, color, material, extra)
+				end
+			end
+		end
+	end
+end
+
+-- baranda de cristal con remate de neon, segmento alineado a un eje
+local function rail(parent, name, x1, z1, x2, z2, y, color)
+	local tx = (x1 == x2) and 0.2 or 0
+	local tz = (z1 == z2) and 0.2 or 0
+	B(parent, name .. "_Glass", x1 - tx, y, z1 - tz, x2 + tx, y + 4, z2 + tz, C.glass, M.Glass, { Transparency = 0.6 })
+	glow(parent, name .. "_Cap", x1 - tx, y + 4, z1 - tz, x2 + tx, y + 4.3, z2 + tz, color or C.cyan, { cycle = true })
+end
+
+local function railLoop(parent, name, x1, z1, x2, z2, y, color)
+	rail(parent, name .. "_N", x1, z1, x2, z1, y, color)
+	rail(parent, name .. "_S", x1, z2, x2, z2, y, color)
+	rail(parent, name .. "_W", x1, z1, x1, z2, y, color)
+	rail(parent, name .. "_E", x2, z1, x2, z2, y, color)
+end
+
+-- pared con ventanal: base, cristal, remate y pilares
+local function glassWall(parent, name, x1, z1, x2, z2, y0)
+	local alongX = (x2 - x1) > (z2 - z1)
+	B(parent, name .. "_Base", x1, y0, z1, x2, y0 + 3, z2, C.wall, M.Concrete)
+	B(parent, name .. "_Glass", x1, y0 + 3, z1, x2, y0 + 19, z2, C.glass, M.Glass, { Transparency = 0.55 })
+	B(parent, name .. "_Top", x1, y0 + 19, z1, x2, y0 + FLOOR_H, z2, C.wall, M.Concrete)
+	for i = 0, 4 do
+		local f = i / 4
+		if alongX then
+			local a = math.clamp(x1 + (x2 - x1) * f - 1, x1, x2 - 2)
+			B(parent, name .. "_Pillar" .. i, a, y0, z1, a + 2, y0 + FLOOR_H, z2, C.dark, M.Concrete)
+		else
+			local a = math.clamp(z1 + (z2 - z1) * f - 1, z1, z2 - 2)
+			B(parent, name .. "_Pillar" .. i, x1, y0, a, x2, y0 + FLOOR_H, a + 2, C.dark, M.Concrete)
+		end
+	end
+end
+
+-- escalera maciza de 24 peldanos (sube 24 studs). dir = sentido en Z en que se sube
+local function stairs(parent, name, x1, x2, baseY, zStart, dir)
+	for i = 0, 23 do
+		local zc = zStart + dir * (2 * i + 1)
+		local top = baseY + i + 1
+		B(parent, name .. "_Step" .. i, x1, baseY, zc - 1, x2, top, zc + 1, C.dark, M.Concrete)
+		local lipZ = zc - dir * 1
+		glow(
+			parent,
+			name .. "_Lip" .. i,
+			x1,
+			top,
+			math.min(lipZ, lipZ + dir * 0.4),
+			x2,
+			top + 0.1,
+			math.max(lipZ, lipZ + dir * 0.4),
+			C.cyan,
+			{ cycle = true, phase = i * 0.15 }
+		)
+	end
+end
+
+-- sofa: asiento mirando a -Z local, respaldo en +Z local
+local function sofa(parent, name, x, y, z, ry, w, color, glowColor)
+	local cf = CFrame.new(x, y, z) * CFrame.Angles(0, ry, 0)
+	P(parent, name .. "_Seat", cf * CFrame.new(0, 1, 0), Vector3.new(w, 2, 3), color, M.Fabric)
+	P(parent, name .. "_Back", cf * CFrame.new(0, 3, 1.25), Vector3.new(w, 4, 0.5), color, M.Fabric)
+	for s = -1, 1, 2 do
+		P(parent, name .. "_Arm" .. s, cf * CFrame.new(s * (w / 2 - 0.4), 1.9, 0), Vector3.new(0.8, 1.8, 3), color, M.Fabric)
+	end
+	P(parent, name .. "_Glow", cf * CFrame.new(0, 0.2, 0), Vector3.new(w - 0.5, 0.2, 2.6), glowColor or C.magenta, M.Neon, DECOR)
+end
+
+local function roundTable(parent, name, x, y, z, radius, high, glowColor)
+	local h = high and 4.2 or 2.2
+	cyl(parent, name .. "_Leg", x, y + h / 2, z, h, 0.7, C.black, M.Metal)
+	cyl(parent, name .. "_Top", x, y + h + 0.15, z, 0.3, radius * 2, C.black, M.Marble)
+	cyl(parent, name .. "_Glow", x, y + 0.1, z, 0.2, radius * 1.2, glowColor or C.cyan, M.Neon, DECOR)
+end
+
+local function stool(parent, name, x, y, z)
+	cyl(parent, name .. "_Post", x, y + 1.2, z, 2.4, 0.5, C.black, M.Metal)
+	cyl(parent, name .. "_Seat", x, y + 2.6, z, 0.6, 2, C.velvet, M.Fabric)
+end
+
+-- cabina de DJ mirando al sur (+Z). cx, y = suelo, z = mesa
+local function djDeck(parent, name, cx, y, z, glowColor)
+	B(parent, name .. "_Table", cx - 6, y, z - 1, cx + 6, y + 3.5, z + 1, C.black, M.SmoothPlastic)
+	glow(parent, name .. "_TableGlow", cx - 6, y + 1, z + 1, cx + 6, y + 1.4, z + 1.1, glowColor, { cycle = true })
+	for s = -1, 1, 2 do
+		cyl(parent, name .. "_Deck" .. s, cx + s * 3, y + 3.7, z, 0.4, 2.6, C.dark, M.Metal)
+		cyl(parent, name .. "_Disc" .. s, cx + s * 3, y + 3.95, z, 0.1, 2.2, C.cyan, M.Neon, DECOR)
+	end
+	B(parent, name .. "_Mixer", cx - 1, y + 3.5, z - 0.8, cx + 1, y + 4, z + 0.8, C.dark, M.Metal)
+	B(parent, name .. "_Laptop", cx + 4.2, y + 3.5, z - 0.6, cx + 5.6, y + 3.7, z + 0.6, C.black, M.Metal)
+end
+
+local function speaker(parent, name, x, y, z, height, withSound)
+	local body = B(parent, name, x - 3, y, z - 3, x + 3, y + height, z + 3, C.black, M.SmoothPlastic)
+	local yy = y + 3
+	while yy < y + height - 1 do
+		cylZ(parent, name .. "_Woofer" .. yy, x, yy, z + 3, 0.4, 4, C.dark, M.Metal, { CanCollide = false })
+		cylZ(parent, name .. "_Ring" .. yy, x, yy, z + 3.1, 0.2, 4.6, C.magenta, M.Neon, DECOR)
+		yy += 5
+	end
+	if withSound then
+		local s = Instance.new("Sound")
+		s.Name = "ClubMusic"
+		s.SoundId = CONFIG.MusicId
+		s.Looped = true
+		s.Volume = CONFIG.MusicVolume
+		s.RollOffMode = Enum.RollOffMode.InverseTapered
+		s.RollOffMinDistance = 20
+		s.RollOffMaxDistance = 160
+		s.Parent = body
+		if CONFIG.MusicId ~= "" then
+			s:Play()
+		end
+	end
+	return body
+end
+
+-- barra recta. side = lado de los clientes ("E","W","S","N")
+local function barCounter(parent, name, x1, z1, x2, z2, y, side, glowColor)
+	B(parent, name .. "_Body", x1, y, z1, x2, y + 4, z2, C.dark, M.Concrete)
+	B(parent, name .. "_Top", x1 - 0.4, y + 4, z1 - 0.4, x2 + 0.4, y + 4.5, z2 + 0.4, C.black, M.Marble)
+	local g = glowColor or C.magenta
+	if side == "E" then
+		glow(parent, name .. "_Strip", x2, y + 0.6, z1, x2 + 0.15, y + 1.1, z2, g, { cycle = true, light = 14 })
+	elseif side == "W" then
+		glow(parent, name .. "_Strip", x1 - 0.15, y + 0.6, z1, x1, y + 1.1, z2, g, { cycle = true, light = 14 })
+	elseif side == "S" then
+		glow(parent, name .. "_Strip", x1, y + 0.6, z2, x2, y + 1.1, z2 + 0.15, g, { cycle = true, light = 14 })
+	else
+		glow(parent, name .. "_Strip", x1, y + 0.6, z1 - 0.15, x2, y + 1.1, z1, g, { cycle = true, light = 14 })
+	end
+end
+
+-- estanteria de botellas. eje = "Z": estantes a lo largo de Z, botellas mirando a +/-X
+local function bottleShelf(parent, name, x, y, zFrom, zTo, depth, base)
+	for k = 0, 2 do
+		local sy = y + (base or 3) + k * 2.6
+		B(parent, name .. "_Board" .. k, x, sy, zFrom, x + depth, sy + 0.3, zTo, C.wood, M.Wood)
+		glow(parent, name .. "_Led" .. k, x, sy - 0.15, zFrom, x + depth, sy, zTo, BOTTLES[k + 1], { cycle = true })
+		local z = zFrom + 1
+		local n = 0
+		while z < zTo - 0.5 do
+			n += 1
+			cyl(
+				parent,
+				name .. "_Bottle" .. k .. "_" .. n,
+				x + depth / 2,
+				sy + 1,
+				z,
+				1.4,
+				0.6,
+				BOTTLES[(n + k) % #BOTTLES + 1],
+				M.Glass,
+				{ CanCollide = false, Transparency = 0.2 }
+			)
+			z += 2
+		end
+	end
+end
+
+
+------------------------------------------------------------------------
+-- Detalle "de sala real": trusses, neon en techo, cuerdas, humo, altavoces colgados
+------------------------------------------------------------------------
+-- barra cilindrica entre dos puntos
+local function seg(parent, name, a, b, thick, color, material, extra)
+	local len = (b - a).Magnitude
+	return P(parent, name, CFrame.lookAt((a + b) * 0.5, b), Vector3.new(thick, thick, len), color, material, extra or DECOR)
+end
+
+-- truss reticulado 1.2x1.2 (4 cordones + zigzag en las dos caras). y = centro
+local function truss(parent, name, x1, z1, x2, z2, y)
+	local alongX = math.abs(x2 - x1) > math.abs(z2 - z1)
+	local len = alongX and math.abs(x2 - x1) or math.abs(z2 - z1)
+	local function pt(t, ox, oy)
+		if alongX then
+			return Vector3.new(math.min(x1, x2) + t, y + oy, z1 + ox)
+		end
+		return Vector3.new(x1 + ox, y + oy, math.min(z1, z2) + t)
+	end
+	for _, ox in { -0.6, 0.6 } do
+		for _, oy in { -0.6, 0.6 } do
+			seg(parent, name .. "_Chord", pt(0, ox, oy), pt(len, ox, oy), 0.18, C.dark, M.Metal)
+		end
+		local n = math.floor(len / 1.2)
+		for i = 0, n - 1 do
+			local lo, hi = (i % 2 == 0) and -0.6 or 0.6, (i % 2 == 0) and 0.6 or -0.6
+			seg(parent, name .. "_Web", pt(i * 1.2, ox, lo), pt((i + 1) * 1.2, ox, hi), 0.1, C.dark, M.Metal)
+		end
+	end
+end
+
+-- foco empotrado en el techo (disco calido + luz suave)
+local function downlight(parent, name, x, y, z)
+	local d = cyl(parent, name, x, y, z, 0.15, 1.6, C.warmWhite, M.Neon, DECOR)
+	addLight(d, C.warmWhite, 24, false, 0.8)
+end
+
+-- arte de neon rosa en el techo: polilineas con giros de 90 y diagonales
+local function neonArt(parent, name, x1, z1, x2, z2, y, seed, count, color)
+	local state = seed
+	local function rnd()
+		state = (state * 16807) % 2147483647
+		return state / 2147483647
+	end
+	local function clampX(v)
+		return math.clamp(v, x1 + 2, x2 - 2)
+	end
+	local function clampZ(v)
+		return math.clamp(v, z1 + 2, z2 - 2)
+	end
+	local DX, DZ = { 1, 0, -1, 0 }, { 0, 1, 0, -1 }
+	for _ = 1, count do
+		local x = x1 + 6 + rnd() * (x2 - x1 - 12)
+		local z = z1 + 6 + rnd() * (z2 - z1 - 12)
+		local dir = math.floor(rnd() * 4)
+		for step = 1, 8 do
+			local len = 4 + math.floor(rnd() * 9)
+			local nx, nz = clampX(x + DX[dir + 1] * len), clampZ(z + DZ[dir + 1] * len)
+			if nx ~= x or nz ~= z then
+				seg(parent, name, Vector3.new(x, y, z), Vector3.new(nx, y, nz), 0.28, color, M.Neon)
+				x, z = nx, nz
+			end
+			if step % 3 == 0 then
+				local sx = (rnd() < 0.5) and 1 or -1
+				local dx2, dz2 = clampX(x + sx * 5), clampZ(z + 5)
+				if dx2 ~= x or dz2 ~= z then
+					seg(parent, name, Vector3.new(x, y, z), Vector3.new(dx2, y, dz2), 0.28, color, M.Neon)
+					x, z = dx2, dz2
+				end
+			end
+			dir = (dir + ((rnd() < 0.5) and 1 or 3)) % 4
+		end
+	end
+end
+
+-- poste dorado + cuerda de terciopelo (la cuerda no colisiona)
+local function ropeLine(parent, name, x1, z1, x2, z2, y, skipA, skipB)
+	for idx, p in { { x1, z1 }, { x2, z2 } } do
+		if not ((idx == 1 and skipA) or (idx == 2 and skipB)) then
+			cyl(parent, name .. "_Post", p[1], y + 1.5, p[2], 3, 0.5, C.gold, M.Metal)
+			ball(parent, name .. "_Cap", p[1], y + 3.1, p[2], 0.8, C.gold, M.Metal, DECOR)
+		end
+	end
+	seg(parent, name .. "_Rope", Vector3.new(x1, y + 2.5, z1), Vector3.new(x2, y + 2.5, z2), 0.25, C.velvet, M.Fabric)
+end
+
+-- columna de altavoces colgados (line array), mirando al sur
+local function flownArray(parent, name, x, z, yTop, count)
+	for k = 0, count - 1 do
+		local cf = CFrame.new(x, yTop - 1.2 - k * 1.8, z) * CFrame.Angles(math.rad(k * 2.5), 0, 0)
+		P(parent, name .. "_Cab" .. k, cf, Vector3.new(3.2, 1.6, 2.6), C.black, M.Metal)
+		P(parent, name .. "_Grille" .. k, cf * CFrame.new(0, 0, 1.32), Vector3.new(2.9, 1.2, 0.1), C.dark, M.Metal, DECOR)
+	end
+	for _, sx in { -1.4, 1.4 } do
+		B(parent, name .. "_Rod", x + sx - 0.08, yTop - 0.2, z - 0.08, x + sx + 0.08, FLOOR_H, z + 0.08, C.dark, M.Metal, DECOR)
+	end
+end
+
+-- humo / niebla de escenario
+local function haze(parent, name, x, y, z, size)
+	local p = P(parent, name, CFrame.new(x, y, z), Vector3.new(1, 1, 1), C.white, M.SmoothPlastic, { Transparency = 1, CanCollide = false })
+	local sm = Instance.new("Smoke")
+	sm.Size = size
+	sm.Opacity = 0.12
+	sm.RiseVelocity = 1.5
+	sm.Color = Color3.fromRGB(190, 150, 255)
+	sm.Parent = p
+end
+
+-- listones de madera oscura en pared (acustico). axis "x": a lo largo de X (pared norte/sur)
+local function slats(parent, name, axis, fixed, from, to, y1, y2, depthDir)
+	local c = from
+	while c < to do
+		if axis == "z" then
+			B(parent, name, fixed, y1, c, fixed + depthDir * 0.5, y2, c + 0.45, Color3.fromRGB(46, 28, 26), M.Wood, DECOR)
+		else
+			B(parent, name, c, y1, fixed, c + 0.45, y2, fixed + depthDir * 0.5, Color3.fromRGB(46, 28, 26), M.Wood, DECOR)
+		end
+		c += 1.2
+	end
+end
+
+------------------------------------------------------------------------
+-- Exterior y estructura
+------------------------------------------------------------------------
+local function buildShell()
+	local e = folders.Exterior
+	B(e, "Street", -120, -6, -120, 120, -0.2, 120, Color3.fromRGB(28, 28, 34), M.Asphalt)
+	-- acera a ras del suelo del club (4 tramos: no se solapa con la losa del piso 1)
+	local walk = Color3.fromRGB(70, 66, 80)
+	B(e, "Sidewalk_S", -60, -3, 50, 60, 0, 75, walk, M.Concrete)
+	B(e, "Sidewalk_N", -60, -3, -60, 60, 0, -50, walk, M.Concrete)
+	B(e, "Sidewalk_W", -60, -3, -50, -50, 0, 50, walk, M.Concrete)
+	B(e, "Sidewalk_E", 50, -3, -50, 60, 0, 50, walk, M.Concrete)
+	if CONFIG.Boundary then
+		local inv = { Transparency = 1, CastShadow = false }
+		B(e, "Boundary_N", -122, -0.2, -122, 122, 60, -120, C.black, M.SmoothPlastic, inv)
+		B(e, "Boundary_S", -122, -0.2, 120, 122, 60, 122, C.black, M.SmoothPlastic, inv)
+		B(e, "Boundary_W", -122, -0.2, -120, -120, 60, 120, C.black, M.SmoothPlastic, inv)
+		B(e, "Boundary_E", 120, -0.2, -120, 122, 60, 120, C.black, M.SmoothPlastic, inv)
+	end
+
+	-- paredes del piso 1 (entrada al sur: hueco de 14 x 11)
+	local f1 = folders.Floor1
+	B(f1, "Wall_N", -50, 0, -50, 50, FLOOR_H, -48, C.wall, M.Concrete)
+	B(f1, "Wall_W", -50, 0, -48, -48, FLOOR_H, 48, C.wall, M.Concrete)
+	B(f1, "Wall_E", 48, 0, -48, 50, FLOOR_H, 48, C.wall, M.Concrete)
+	B(f1, "Wall_S_L", -50, 0, 48, -7, FLOOR_H, 50, C.wall, M.Concrete)
+	B(f1, "Wall_S_R", 7, 0, 48, 50, FLOOR_H, 50, C.wall, M.Concrete)
+	B(f1, "Wall_S_Top", -7, 11, 48, 7, FLOOR_H, 50, C.wall, M.Concrete)
+
+	-- pared del piso 2 (ventanales salvo el norte)
+	local f2 = folders.Floor2
+	local y2 = FLOOR_Y[2]
+	B(f2, "Wall_N", -50, y2, -50, 50, y2 + FLOOR_H, -48, C.wall, M.Concrete)
+	glassWall(f2, "Glass_W", -50, -48, -48, 48, y2)
+	glassWall(f2, "Glass_E", 48, -48, 50, 48, y2)
+	glassWall(f2, "Glass_S", -50, 48, 50, 50, y2)
+
+	-- arco neon de la puerta
+	glow(e, "Door_L", -7.6, 0, 50, -7, 11.6, 50.5, C.magenta, { cycle = true, light = 24 })
+	glow(e, "Door_R", 7, 0, 50, 7.6, 11.6, 50.5, C.magenta, { cycle = true, light = 24, phase = 1 })
+	glow(e, "Door_Top", -7.6, 11, 50, 7.6, 11.6, 50.5, C.cyan, { cycle = true })
+
+	-- cantos verticales de neon en las 4 esquinas
+	for i, c in { { -50.3, -50.3 }, { 50.3, -50.3 }, { -50.3, 50.3 }, { 50.3, 50.3 } } do
+		glow(e, "Corner" .. i, c[1] - 0.2, 0, c[2] - 0.2, c[1] + 0.2, FLOOR_Y[3], c[2] + 0.2, C.purple, { cycle = true, phase = i })
+	end
+
+	sign(e, "MainSign", 0, 17, 50.3, 36, 7, 0, 1, "AURA CLUB", C.cyan, true)
+	glow(e, "MainSignFrameT", -18.4, 20.5, 50.2, 18.4, 20.9, 50.5, C.magenta, { cycle = true })
+	glow(e, "MainSignFrameB", -18.4, 13.1, 50.2, 18.4, 13.5, 50.5, C.magenta, { cycle = true })
+
+	-- cola de entrada: postes dorados y cuerdas de terciopelo
+	for _, sx in { -6, 6 } do
+		for k = 0, 3 do
+			local z = 54 + k * 5
+			cyl(e, "Post", sx, 1.5, z, 3, 0.6, C.gold, M.Metal)
+			ball(e, "PostTop", sx, 3.1, z, 0.9, C.gold, M.Metal)
+			if k < 3 then
+				B(e, "Rope", sx - 0.15, 2.3, z, sx + 0.15, 2.7, z + 5, C.velvet, M.Fabric, DECOR)
+			end
+		end
+	end
+	for _, sx in { -12, 12 } do
+		B(e, "Planter", sx - 1.5, 0, 52, sx + 1.5, 2.5, 55, C.dark, M.Concrete)
+		ball(e, "PlanterLeaf", sx, 4.2, 53.5, 4, C.green, M.Grass)
+	end
+end
+
+------------------------------------------------------------------------
+-- PISO 1
+------------------------------------------------------------------------
+local function buildFloor1()
+	local f = folders.Floor1
+	B(f, "Floor1_Slab", -50, -3, -50, 50, 0, 50, C.floor, M.Marble, { Reflectance = 0.12 })
+
+	-- alfombra del hall
+	B(f, "Carpet", -4, 0, 28, 4, 0.1, 48, C.velvet, M.Fabric)
+
+	-- pista LED
+	local n = CONFIG.TileCount
+	local size = 48 / n
+	for ix = 0, n - 1 do
+		for iz = 0, n - 1 do
+			local x1 = -24 + ix * size
+			local z1 = -34 + iz * size
+			local tile = B(f, "Tile", x1 + 0.1, 0, z1 + 0.1, x1 + size - 0.1, 0.2, z1 + size - 0.1, C.cyan, M.Neon, { CastShadow = false })
+			table.insert(fx.tiles, { part = tile, ix = ix, iz = iz })
+		end
+	end
+
+	-- cristal pulido sobre la pista (reflejos), sin colision
+	B(f, "LedGlass", -24, 0.2, -34, 24, 0.28, 14, C.white, M.Glass, { Transparency = 0.8, Reflectance = 0.25, CanCollide = false, CastShadow = false })
+
+	-- escenario DJ (norte) con 3 escalones de acceso
+	B(f, "Stage", -18, 0, -46.5, 18, 3, -37, C.black, M.SmoothPlastic)
+	B(f, "StageStepB", -6, 0, -37, 6, 2, -36, C.black, M.SmoothPlastic)
+	B(f, "StageStepA", -6, 0, -36, 6, 1, -35, C.black, M.SmoothPlastic)
+	glow(f, "StageTrim", -18, 0.8, -37.15, 18, 1.3, -37, C.magenta, { cycle = true, light = 18 })
+	djDeck(f, "DJ1", 0, 3, -42, C.cyan)
+	haze(f, "StageHazeL", -10, 3.2, -38.5, 14)
+	haze(f, "StageHazeR", 10, 3.2, -38.5, 14)
+	flownArray(f, "FlownL", -16.5, -43, 21.5, 7)
+	flownArray(f, "FlownR", 16.5, -43, 21.5, 7)
+
+	-- pantalla LED gigante
+	local _, label = sign(f, "DJScreen", 0, 13, -47.75, 40, 14, 0, 1, "AURA", C.cyan, false)
+	table.insert(fx.screens, label)
+	glow(f, "ScreenFrameT", -20.4, 20, -47.7, 20.4, 20.5, -47.2, C.purple, { cycle = true })
+	glow(f, "ScreenFrameB", -20.4, 5.5, -47.7, 20.4, 6, -47.2, C.purple, { cycle = true })
+
+	-- altavoces (el de la izquierda lleva el Sound)
+	speaker(f, "Speaker_L", -22, 0, -43, 12, true)
+	speaker(f, "Speaker_R", 22, 0, -43, 12, false)
+
+	-- truss del escenario con focos y estrobos
+	truss(f, "StageTruss", -20, -40, 20, -40, 20.6)
+	for i, x in { -19, 0, 19 } do
+		B(f, "StageHanger" .. i, x - 0.1, 21.2, -40.1, x + 0.1, FLOOR_H, -39.9, C.dark, M.Metal, DECOR)
+	end
+	for i, x in { -16, -8, 0, 8, 16 } do
+		glow(f, "StageSpot" .. i, x - 0.6, 19, -40.6, x + 0.6, 20, -39.4, C.magenta, {
+			cycle = true,
+			phase = i,
+			light = 36,
+			spot = true,
+			brightness = 3,
+		})
+	end
+	for i, x in { -12, -4, 4, 12 } do
+		addStrobe(f, "Strobe" .. i, x - 1.5, 19.2, -40.4, x + 1.5, 20, -39.6)
+	end
+
+
+	-- bola de espejos colgada del techo del atrio (gira lento)
+	local mc = Vector3.new(0, 36, -10)
+	B(f, "MirrorRod", mc.X - 0.15, mc.Y + 3, mc.Z - 0.15, mc.X + 0.15, FLOOR_Y[3] - 2, mc.Z + 0.15, C.dark, M.Metal, DECOR)
+	local core = ball(f, "MirrorCore", mc.X, mc.Y, mc.Z, 6, C.dark, M.Metal, { Reflectance = 0.6 })
+	addLight(core, C.white, 40, false, 2)
+	local rings = { { -60, 6 }, { -30, 10 }, { 0, 12 }, { 30, 10 }, { 60, 6 } }
+	for _, ring in rings do
+		local lat = math.rad(ring[1])
+		for k = 0, ring[2] - 1 do
+			local lon = k / ring[2] * math.pi * 2
+			local dir = Vector3.new(math.cos(lat) * math.cos(lon), math.sin(lat), math.cos(lat) * math.sin(lon))
+			local local_cf = CFrame.lookAt(dir * 3, dir * 4)
+			local facet = P(f, "MirrorFacet", CFrame.new(mc) * local_cf, Vector3.new(1.1, 1.1, 0.15), C.white, M.Metal, { Reflectance = 1, CanCollide = false, CastShadow = false })
+			table.insert(fx.mirror, { part = facet, center = mc, offset = local_cf })
+		end
+	end
+
+	-- truss del atrio con 6 lasers (3 por lado)
+	for _, side in { -1, 1 } do
+		local x = side * 22
+		truss(f, "AtriumTruss", x, -34, x, -6, 41.3)
+		for _, z in { -33, -7 } do
+			B(f, "AtriumRod", x - 0.2, 41.6, z - 0.2, x + 0.2, FLOOR_Y[3] - 2, z + 0.2, C.dark, M.Metal)
+		end
+		for k, z in { -32, -20, -8 } do
+			local colors = { C.cyan, C.magenta, C.purple }
+			local col = colors[k]
+			glow(f, "LaserHead", x - 0.8, 39.5, z - 0.8, x + 0.8, 40.7, z + 0.8, col, { light = 10 })
+			local beam = P(
+				folders.Effects,
+				"Laser",
+				CFrame.new(x, 40, z),
+				Vector3.new(0.5, 0.5, BEAM_LEN),
+				col,
+				M.Neon,
+				{ CanCollide = false, CastShadow = false, Transparency = 0.45 }
+			)
+			table.insert(fx.beams, {
+				part = beam,
+				origin = Vector3.new(x, 40, z),
+				yaw = math.pi + side * -0.4,
+				swing = 0.4,
+				speed = 1 + k * 0.35,
+				phase = k * 1.7 + (side + 1),
+				side = side,
+			})
+		end
+	end
+
+	-- barra oeste
+	B(f, "BackBar", -48, 0, -26, -46, 6, 8, C.dark, M.Concrete)
+	bottleShelf(f, "BarShelf", -48, 0, -26, 8, 2, 6)
+	barCounter(f, "Bar1", -43, -26, -40, 6, 0, "E", C.magenta)
+	for k = 0, 5 do
+		stool(f, "BarStool" .. k, -36, 0, -22 + k * 5)
+	end
+	sign(f, "BarSign", -47.75, 17, -9, 14, 4, 1, 0, "BAR", C.magenta, true)
+
+	-- booths (suroeste): sofas contra la pared oeste + mesa
+	for i, z in { 18, 28, 38 } do
+		sofa(f, "Booth" .. i, -46.2, 0, z, -math.pi / 2, 9, C.velvet, C.magenta)
+		roundTable(f, "BoothTable" .. i, -41.5, 0, z, 1.8, false, C.cyan)
+	end
+
+	-- mesas altas este de la pista
+	for i, z in { 18, 30, 42 } do
+		roundTable(f, "HighTable" .. i, 31, 0, z, 1.6, true, C.purple)
+	end
+	for i, z in { 22, 34 } do
+		roundTable(f, "HighTableW" .. i, -28, 0, z, 1.6, true, C.cyan)
+	end
+
+	-- escalera P1 -> P2 (este): se sube hacia el norte
+	stairs(folders.Stairs, "Stairs1", 40, 48, FLOOR_Y[1], 46, -1)
+
+	-- tiras de luz en el techo del hall
+	for i, x in { -14, 14 } do
+		glow(f, "HallStrip" .. i, x - 0.3, 21.6, 18, x + 0.3, 22, 46, C.purple, { cycle = true, phase = i, light = 24 })
+	end
+	glow(f, "StageCeil", -20, 21.6, -46, 20, 22, -45.4, C.cyan, { cycle = true })
+	-- ambiente: neon rosa en el techo del hall, focos empotrados y listones acusticos
+	neonArt(f, "CeilArt1", -46, 17, 46, 47, 21.8, 7, 5, C.magenta)
+	for _, x in { -36, -24, -12, 0, 12, 24, 36 } do
+		for _, z in { 24, 38 } do
+			downlight(f, "Downlight", x, 21.9, z)
+		end
+	end
+	slats(f, "SlatE", "z", 47.5, -46, -5, 1, 21, 1)
+	slats(f, "SlatNL", "x", -48, -46, -26, 1, 21, 1)
+	slats(f, "SlatNR", "x", -48, 26, 46, 1, 21, 1)
+	slats(f, "SlatW", "z", -48, -46, -28, 1, 21, 1)
+	sign(f, "Floor1Label", 47.75, 16, 24, 10, 3, -1, 0, "LEVEL 1", C.cyan, true)
+end
+
+------------------------------------------------------------------------
+-- PISO 2 (VIP)
+------------------------------------------------------------------------
+local function buildFloor2()
+	local f = folders.Floor2
+	local y = FLOOR_Y[2]
+	slab(f, "Floor2_Slab", -50, -50, 50, 50, y, 2, { { -24, -34, 24, 14 }, { 40, -2, 48, 16 } }, Color3.fromRGB(34, 22, 44), M.Marble, { Reflectance = 0.12 })
+
+	-- barandillas del balcon sobre la pista y del hueco de la escalera
+	railLoop(f, "AtriumRail", -24, -34, 24, 14, y, C.cyan)
+	rail(f, "S1Rail_W", 40, -2, 40, 16, y, C.magenta)
+	rail(f, "S1Rail_S", 40, 16, 48, 16, y, C.magenta)
+
+	-- barra VIP norte
+	B(f, "VIPBackBar", -16, y, -48, 16, y + 6, -46, C.dark, M.Concrete)
+	for k = 0, 2 do
+		local sy = y + 6 + k * 2.6
+		B(f, "VIPShelf" .. k, -16, sy, -48, 16, sy + 0.3, -45, C.wood, M.Wood)
+		glow(f, "VIPShelfLed" .. k, -16, sy - 0.15, -48, 16, sy, -45, BOTTLES[k + 1], { cycle = true, light = 16 })
+		for n = 0, 7 do
+			cyl(f, "VIPBottle", -14 + n * 4, sy + 1, -46.5, 1.4, 0.6, BOTTLES[(n + k) % #BOTTLES + 1], M.Glass, { CanCollide = false, Transparency = 0.2 })
+		end
+	end
+	barCounter(f, "VIPBar", -14, -44, 14, -41, y, "S", C.gold)
+	for k, x in { -12, -4, 4, 12 } do
+		stool(f, "VIPStool" .. k, x, y, -39.5)
+	end
+	sign(f, "VIPSign", 0, y + 14, -47.75, 22, 6, 0, 1, "V.I.P", C.gold, false)
+
+	-- lounges: mesa + 2 sofas enfrentados
+	local lounges = {
+		{ 32, -24 }, { 32, -10 }, { -32, -24 }, { -32, -8 }, { -32, 8 },
+		{ -30, 30 }, { 0, 30 }, { 30, 30 },
+	}
+	for i, p in lounges do
+		local x, z = p[1], p[2]
+		roundTable(f, "LoungeTable" .. i, x, y, z, 2, false, C.gold)
+		sofa(f, "LoungeSofaA" .. i, x, y, z - 5, math.pi, 7, C.sofaWarm, C.fire)
+		sofa(f, "LoungeSofaB" .. i, x, y, z + 5, 0, 7, C.sofaWarm, C.fire)
+		for _, px in { -2.2, 2.2 } do
+			P(f, "PillowA" .. i, CFrame.new(x + px, y + 2.9, z - 5.7) * CFrame.Angles(0, math.rad(px * 8), 0), Vector3.new(1.4, 1.4, 0.5), C.velvet, M.Fabric, DECOR)
+			P(f, "PillowB" .. i, CFrame.new(x + px, y + 2.9, z + 5.7) * CFrame.Angles(0, math.rad(-px * 8), 0), Vector3.new(1.4, 1.4, 0.5), C.velvet, M.Fabric, DECOR)
+		end
+		-- cuerdas de terciopelo en 3 lados (el sur queda abierto)
+		ropeLine(f, "RopeW" .. i, x - 7.5, z - 7.5, x - 7.5, z + 7.5, y)
+		ropeLine(f, "RopeE" .. i, x + 7.5, z - 7.5, x + 7.5, z + 7.5, y)
+		ropeLine(f, "RopeN" .. i, x - 7.5, z - 7.5, x + 7.5, z - 7.5, y, true, true)
+		glow(f, "Chandelier" .. i, x - 3, y + 17, z - 3, x + 3, y + 17.3, z + 3, C.warmWhite, { light = 26, brightness = 1.4 })
+		B(f, "ChandelierRod" .. i, x - 0.1, y + 17.3, z - 0.1, x + 0.1, y + FLOOR_H, z + 0.1, C.dark, M.Metal, DECOR)
+	end
+
+	-- tiras en el techo (parte baja de la losa del piso 3)
+	for i, z in { -30, 22, 38 } do
+		glow(f, "CeilStrip" .. i, -46, y + 21.6, z, 46, y + 22, z + 0.6, C.purple, { cycle = true, phase = i })
+	end
+	neonArt(f, "CeilArt2", -46, 17, 46, 47, y + 21.8, 11, 5, C.magenta)
+	for _, x in { -36, -24, -12, 0, 12, 24, 36 } do
+		for _, z in { 24, 38 } do
+			downlight(f, "Downlight2", x, y + 21.9, z)
+		end
+	end
+	sign(f, "Floor2Label", 47.75, y + 16, -20, 10, 3, -1, 0, "LEVEL 2", C.gold, false)
+
+	-- escalera P2 -> P3 (oeste): se sube hacia el sur
+	stairs(folders.Stairs, "Stairs2", -48, -40, y, -46, 1)
+end
+
+------------------------------------------------------------------------
+-- PISO 3 (rooftop)
+------------------------------------------------------------------------
+local function lounger(parent, name, x, y, z)
+	B(parent, name .. "_Base", x - 1.5, y, z - 3.5, x + 1.5, y + 1.2, z + 3.5, Color3.fromRGB(235, 235, 245), M.Fabric)
+	P(parent, name .. "_Back", CFrame.new(x, y + 1.7, z + 3) * CFrame.Angles(math.rad(-30), 0, 0), Vector3.new(3, 0.6, 2), Color3.fromRGB(235, 235, 245), M.Fabric)
+	glow(parent, name .. "_Glow", x - 1.4, y, z - 3.4, x + 1.4, y + 0.15, z + 3.4, C.cyan, { cycle = true })
+end
+
+local function firePit(parent, name, x, y, z)
+	cyl(parent, name .. "_Ring", x, y + 0.75, z, 1.5, 6, Color3.fromRGB(60, 56, 66), M.Slate)
+	local flame = P(parent, name .. "_Flame", CFrame.new(x, y + 1.6, z), Vector3.new(1, 1, 1), C.fire, M.SmoothPlastic, { Transparency = 1, CanCollide = false })
+	local fire = Instance.new("Fire")
+	fire.Size = 7
+	fire.Heat = 9
+	fire.Color = C.fire
+	fire.SecondaryColor = C.magenta
+	fire.Parent = flame
+	local l = Instance.new("PointLight")
+	l.Color = C.fire
+	l.Range = 26
+	l.Brightness = 2
+	l.Parent = flame
+	lightCount += 1
+	sofa(parent, name .. "_SofaS", x, y, z + 6.5, 0, 6, C.velvet, C.fire)
+	sofa(parent, name .. "_SofaN", x, y, z - 6.5, math.pi, 6, C.velvet, C.fire)
+	sofa(parent, name .. "_SofaE", x + 6.5, y, z, math.pi / 2, 6, C.velvet, C.fire)
+	sofa(parent, name .. "_SofaW", x - 6.5, y, z, -math.pi / 2, 6, C.velvet, C.fire)
+end
+
+local function buildFloor3()
+	local f = folders.Floor3
+	local y = FLOOR_Y[3]
+	local pool = { 14, 22, 34, 44 }
+	slab(f, "Floor3_Slab", -50, -50, 50, 50, y, 2, { { -48, -16, -40, 2 }, pool }, C.deck, M.WoodPlanks)
+
+	-- parapeto de cristal + barandillas del hueco de escalera
+	railLoop(f, "Parapet", -49.6, -49.6, 49.6, 49.6, y, C.magenta)
+	rail(f, "S2Rail_N", -48, -16, -40, -16, y, C.cyan)
+	rail(f, "S2Rail_E", -40, -16, -40, 2, y, C.cyan)
+
+	-- piscina poco profunda (fondo neon + agua sin colision)
+	B(f, "PoolFloor", pool[1], y - 2, pool[2], pool[3], y - 1, pool[4], Color3.fromRGB(0, 120, 200), M.Neon)
+	B(f, "PoolWater", pool[1], y - 1, pool[2], pool[3], y - 0.2, pool[4], C.cyan, M.Glass, { Transparency = 0.45, CanCollide = false })
+	glow(f, "PoolRim_N", pool[1], y, pool[2] - 0.2, pool[3], y + 0.15, pool[2], C.cyan, { cycle = true, light = 18 })
+	glow(f, "PoolRim_S", pool[1], y, pool[4], pool[3], y + 0.15, pool[4] + 0.2, C.cyan, { cycle = true })
+	glow(f, "PoolRim_W", pool[1] - 0.2, y, pool[2], pool[1], y + 0.15, pool[4], C.cyan, { cycle = true })
+	glow(f, "PoolRim_E", pool[3], y, pool[2], pool[3] + 0.2, y + 0.15, pool[4], C.cyan, { cycle = true })
+
+	-- escenario DJ del rooftop + arco
+	B(f, "RoofStage", -14, y, -47, 14, y + 2, -37, C.black, M.SmoothPlastic)
+	B(f, "RoofStageStep", -5, y, -37, 5, y + 1, -35.5, C.black, M.SmoothPlastic)
+	glow(f, "RoofStageTrim", -14, y + 0.6, -37.15, 14, y + 1, -37, C.cyan, { cycle = true, light = 16 })
+	djDeck(f, "DJ3", 0, y + 2, -43, C.magenta)
+	haze(f, "RoofHazeL", -8, y + 2.2, -38.5, 12)
+	haze(f, "RoofHazeR", 8, y + 2.2, -38.5, 12)
+	speaker(f, "RoofSpeaker_L", -19.5, y, -44, 9, true)
+	speaker(f, "RoofSpeaker_R", 19.5, y, -44, 9, false)
+	B(f, "ArchPillarL", -15.5, y, -47, -14.5, y + 15, -46, C.dark, M.Metal)
+	B(f, "ArchPillarR", 14.5, y, -47, 15.5, y + 15, -46, C.dark, M.Metal)
+	B(f, "ArchBeam", -15.5, y + 14, -47, 15.5, y + 15, -46, C.dark, M.Metal)
+	for i, x in { -8, 0, 8 } do
+		glow(f, "RoofSpot" .. i, x - 0.6, y + 13.1, -46.8, x + 0.6, y + 14, -45.2, C.purple, {
+			cycle = true,
+			phase = i,
+			light = 34,
+			spot = true,
+			brightness = 3,
+		})
+	end
+	for i, x in { -10, 10 } do
+		addStrobe(f, "RoofStrobe" .. i, x - 1.5, y + 13.2, -46.8, x + 1.5, y + 14, -46)
+	end
+	sign(f, "RoofSign", 0, y + 24, -47.2, 24, 6, 0, 1, "AURA", C.magenta, true)
+	B(f, "RoofSignPost1", -9, y + 15, -47.4, -8.5, y + 21, -47, C.dark, M.Metal, DECOR)
+	B(f, "RoofSignPost2", 8.5, y + 15, -47.4, 9, y + 21, -47, C.dark, M.Metal, DECOR)
+
+	-- barra del rooftop (isla + estanteria)
+	B(f, "RoofRack", 34, y, -30, 36, y + 10, -4, C.dark, M.Concrete)
+	bottleShelf(f, "RoofShelf", 33, y, -30, -4, 1)
+	barCounter(f, "RoofBar", 27.5, -30, 30.5, -4, y, "W", C.cyan)
+	for k = 0, 5 do
+		stool(f, "RoofStool" .. k, 24, y, -27 + k * 4)
+	end
+	glow(f, "RoofRackLed", 36, y, -30, 36.15, y + 10, -4, C.purple, { cycle = true, light = 22 })
+
+	-- loungers junto a la piscina y fire pits
+	for i, z in { 16, 24, 32, 40 } do
+		lounger(f, "Lounger" .. i, 10, y, z)
+	end
+	firePit(f, "FirePit1", -26, y, -4)
+	firePit(f, "FirePit2", -26, y, 30)
+
+	-- macetas
+	for i = 0, 7 do
+		local x = -42 + i * 12
+		B(f, "Planter" .. i, x - 1.5, y, 45, x + 1.5, y + 2.2, 48, C.dark, M.Concrete)
+		ball(f, "PlanterLeaf" .. i, x, y + 4.2, 46.5, 4, C.green, M.Grass)
+	end
+end
+
+------------------------------------------------------------------------
+-- Spawn, ambiente y animaciones
+------------------------------------------------------------------------
+local function buildSpawn()
+	local s = Instance.new("SpawnLocation")
+	s.Name = "ClubSpawn"
+	s.Anchored = true
+	s.Size = Vector3.new(8, 0.4, 8)
+	s.CFrame = CFrame.new(0, 0.2, 38)
+	s.Color = C.cyan
+	s.Material = M.Neon
+	s.Transparency = 0.6
+	s.Neutral = true
+	s.Duration = 0
+	s.TopSurface = Enum.SurfaceType.Smooth
+	s.Parent = club
+end
+
+local function buildLighting()
+	for _, n in { "AuraBloom", "AuraColor", "AuraAtmosphere", "AuraDOF" } do
+		local o = Lighting:FindFirstChild(n)
+		if o then
+			o:Destroy()
+		end
+	end
+	Lighting.ClockTime = 0
+	Lighting.Brightness = 0.5
+	Lighting.Ambient = Color3.fromRGB(26, 16, 46)
+	Lighting.OutdoorAmbient = Color3.fromRGB(24, 16, 46)
+	Lighting.ExposureCompensation = 0.35
+	Lighting.EnvironmentDiffuseScale = 0.4
+	Lighting.EnvironmentSpecularScale = 1
+	Lighting.ShadowSoftness = 0.25
+	Lighting.GlobalShadows = true
+
+	local bloom = Instance.new("BloomEffect")
+	bloom.Name = "AuraBloom"
+	bloom.Intensity = 1.3
+	bloom.Size = 42
+	bloom.Threshold = 0.85
+	bloom.Parent = Lighting
+
+	local dof = Instance.new("DepthOfFieldEffect")
+	dof.Name = "AuraDOF"
+	dof.FarIntensity = 0.12
+	dof.NearIntensity = 0
+	dof.FocusDistance = 45
+	dof.InFocusRadius = 70
+	dof.Parent = Lighting
+
+	local cc = Instance.new("ColorCorrectionEffect")
+	cc.Name = "AuraColor"
+	cc.Contrast = 0.18
+	cc.Saturation = 0.3
+	cc.TintColor = Color3.fromRGB(235, 220, 255)
+	cc.Parent = Lighting
+
+	local atm = Lighting:FindFirstChildOfClass("Atmosphere")
+	if not atm then
+		atm = Instance.new("Atmosphere")
+	end
+	atm.Name = "AuraAtmosphere"
+	atm.Density = 0.3
+	atm.Offset = 0.2
+	atm.Color = Color3.fromRGB(120, 70, 190)
+	atm.Decay = Color3.fromRGB(60, 30, 110)
+	atm.Glare = 0.1
+	atm.Haze = 1.2
+	atm.Parent = Lighting
+end
+
+local function updateBeams(t)
+	for _, b in fx.beams do
+		local ry = b.yaw + b.swing * math.sin(t * b.speed + b.phase)
+		b.part.CFrame = CFrame.new(b.origin)
+			* CFrame.Angles(0, ry, 0)
+			* CFrame.Angles(BEAM_PITCH, 0, 0)
+			* CFrame.new(0, 0, -BEAM_LEN / 2)
+	end
+end
+
+local function updateMirror(t)
+	if #fx.mirror == 0 then
+		return
+	end
+	local spin = CFrame.new(fx.mirror[1].center) * CFrame.Angles(0, t * 0.5, 0)
+	for _, m in fx.mirror do
+		m.part.CFrame = spin * m.offset
+	end
+end
+
+local SCREEN_TEXTS = { "AURA", "CLUB", "3 FLOORS", "LET'S GO", "AURA" }
+
+local GLOW_STEPS = 16
+local glowColors = {}
+for i = 0, GLOW_STEPS do
+	glowColors[i] = Color3.fromHSV(0.5 + 0.4 * i / GLOW_STEPS, 0.85, 1)
+end
+
+local function startAnimations()
+	-- relanzar el script no apila conexiones
+	if _G.AuraClubConnection then
+		pcall(function()
+			_G.AuraClubConnection:Disconnect()
+		end)
+		_G.AuraClubConnection = nil
+	end
+	-- fuera de Play (p. ej. barra de comandos) el club queda estatico
+	if not RunService:IsRunning() then
+		return
+	end
+
+	local t = 0
+	local accFast, accTiles, accGlows, accMirror = 0, 0, 0, 0
+	local lastScreen = 0
+	_G.AuraClubConnection = RunService.Heartbeat:Connect(function(dt)
+		t += dt
+		accFast += dt
+		accTiles += dt
+		accGlows += dt
+		accMirror += dt
+
+		if accFast >= RATES.fast then
+			accFast = 0
+			updateBeams(t)
+			-- rafaga de estrobos: 2 s de cada 24 s
+			local on = (t % 24) > 22 and (math.floor(t * 14) % 2 == 0)
+			for _, s in fx.strobes do
+				if s.on ~= on then
+					s.on = on
+					s.part.Color = on and C.white or C.dark
+					s.light.Enabled = on
+				end
+			end
+		end
+
+		if accMirror >= RATES.mirror then
+			accMirror = 0
+			updateMirror(t)
+		end
+
+		if accTiles >= RATES.tiles then
+			accTiles = 0
+			for _, tile in fx.tiles do
+				-- color cuantizado: solo se escribe cuando cambia el paso
+				local hq = math.floor((0.5 + 0.4 * (0.5 + 0.5 * math.sin(t * 0.7 + (tile.ix + tile.iz) * 0.35))) * 24)
+				local vq = math.floor((0.3 + 0.6 * (0.5 + 0.5 * math.sin(t * 3 + tile.ix * 0.8 - tile.iz * 0.8))) * 8)
+				local key = hq * 16 + vq
+				if tile.key ~= key then
+					tile.key = key
+					tile.part.Color = Color3.fromHSV(hq / 24 % 1, 0.9, vq / 8)
+				end
+			end
+		end
+
+		if accGlows >= RATES.glows then
+			accGlows = 0
+			for _, g in fx.glows do
+				local q = math.floor((0.5 + 0.5 * math.sin(t * 0.6 + g.phase)) * GLOW_STEPS + 0.5)
+				if q ~= g.q then
+					g.q = q
+					local c = glowColors[q]
+					g.part.Color = c
+					if g.light then
+						g.light.Color = c
+					end
+				end
+			end
+			for _, s in fx.signs do
+				s.label.TextColor3 = cycleColor(t, s.phase)
+			end
+			local idx = math.floor(t / 3) % #SCREEN_TEXTS + 1
+			if idx ~= lastScreen then
+				lastScreen = idx
+				for _, l in fx.screens do
+					l.Text = SCREEN_TEXTS[idx]
+				end
+			end
+			for _, l in fx.screens do
+				l.TextColor3 = cycleColor(t, 0)
+			end
+		end
+	end)
+end
+
+------------------------------------------------------------------------
+-- Ejecucion
+------------------------------------------------------------------------
+buildShell()
+buildFloor1()
+buildFloor2()
+buildFloor3()
+buildSpawn()
+buildLighting()
+updateMirror(0)
+updateBeams(0) -- pose inicial correcta antes de aparecer
+club.Parent = Workspace
+startAnimations()
+
+local partCount = 0
+for _, d in club:GetDescendants() do
+	if d:IsA("BasePart") then
+		partCount += 1
+	end
+end
+if CONFIG.MusicId == "" then
+	print("[AuraClub] Sin musica: CONFIG.MusicId esta vacio (opcional). Pon un audio que puedas usar.")
+end
+print(string.format("[AuraClub] listo: %d partes, %d luces, 3 pisos.", partCount, lightCount))
+]]></ProtectedString>
+		</Properties>
+	</Item>
+</roblox>

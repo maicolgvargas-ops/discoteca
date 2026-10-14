@@ -5,6 +5,7 @@
 ------------------------------------------------------------------------
 -- Vector3 / Color3 / UDim2
 ------------------------------------------------------------------------
+local _G = {} -- en Roblox _G es una tabla normal; en el CLI de Luau es solo lectura
 local Vector3 = {}
 Vector3.__index = function(self, k)
 	if k == "Magnitude" then
@@ -199,6 +200,7 @@ local CLASSES = {
 	RunService = { props = { "Name", "Parent" } },
 }
 
+local __countWrites, __writes = false, 0
 local Inst = {}
 local function newInstance(className)
 	local def = CLASSES[className]
@@ -227,6 +229,24 @@ Inst.__index = function(self, k)
 	end
 	error(self.ClassName .. "." .. tostring(k) .. " no es una propiedad valida", 2)
 end
+-- rangos validos de propiedades numericas (los que Studio recorta o rechaza)
+local RANGES = {
+	Part = { Transparency = { 0, 1 }, Reflectance = { 0, 1 } },
+	SpawnLocation = { Transparency = { 0, 1 }, Reflectance = { 0, 1 }, Duration = { 0, 1e6 } },
+	PointLight = { Range = { 0, 60 }, Brightness = { 0, 1e4 } },
+	SpotLight = { Range = { 0, 60 }, Brightness = { 0, 1e4 }, Angle = { 0, 180 } },
+	Fire = { Size = { 2, 30 }, Heat = { -25, 25 } },
+	Smoke = { Size = { 0.1, 100 }, Opacity = { 0, 1 }, RiseVelocity = { -25, 25 } },
+	Sound = { Volume = { 0, 10 }, RollOffMinDistance = { 0, 1e5 }, RollOffMaxDistance = { 0, 1e5 } },
+	BloomEffect = { Intensity = { 0, 100 }, Size = { 0, 56 }, Threshold = { 0, 100 } },
+	ColorCorrectionEffect = { Contrast = { -1, 1 }, Saturation = { -1, 1 } },
+	DepthOfFieldEffect = { FarIntensity = { 0, 1 }, NearIntensity = { 0, 1 }, FocusDistance = { 0, 1e5 }, InFocusRadius = { 0, 1e5 } },
+	Atmosphere = { Density = { 0, 1 }, Offset = { 0, 1 }, Glare = { 0, 10 }, Haze = { 0, 10 } },
+	Lighting = { ExposureCompensation = { -5, 5 }, ShadowSoftness = { 0, 1 }, EnvironmentDiffuseScale = { 0, 1 }, EnvironmentSpecularScale = { 0, 1 }, ClockTime = { 0, 24 } },
+	SurfaceGui = { PixelsPerStud = { 1, 500 } },
+	TextLabel = { BackgroundTransparency = { 0, 1 } },
+}
+
 Inst.__newindex = function(self, k, v)
 	if not self._allowed[k] then
 		error(self.ClassName .. "." .. tostring(k) .. " no es una propiedad valida (asignacion)", 2)
@@ -249,9 +269,16 @@ Inst.__newindex = function(self, k, v)
 		end
 		return
 	end
+	local rg = RANGES[self.ClassName] and RANGES[self.ClassName][k]
+	if rg and type(v) == "number" then
+		assert(v >= rg[1] and v <= rg[2], string.format("%s.%s = %s fuera de rango [%s, %s]", self.ClassName, k, tostring(v), tostring(rg[1]), tostring(rg[2])))
+	end
 	if k == "Size" and self._def.base then
 		assert(v.X >= 0.05 and v.Y >= 0.05 and v.Z >= 0.05, "Part con tamano < 0.05: " .. tostring(self._props.Name))
 		assert(v.X <= 2048 and v.Y <= 2048 and v.Z <= 2048, "Part demasiado grande")
+	end
+	if __countWrites then
+		__writes += 1
 	end
 	self._props[k] = v
 end
@@ -272,6 +299,14 @@ end
 function Inst:FindFirstChild(name)
 	for _, c in self._children do
 		if c._props.Name == name then
+			return c
+		end
+	end
+	return nil
+end
+function Inst:FindFirstChildOfClass(cls)
+	for _, c in self._children do
+		if c.ClassName == cls then
 			return c
 		end
 	end
@@ -302,15 +337,25 @@ local __lighting = newInstance("Lighting")
 local __runService = newInstance("RunService")
 local heartbeatSignal = {
 	Connect = function(_, fn)
-		table.insert(__heartbeat, fn)
-		return { Disconnect = function() end }
+		local entry = { fn = fn, active = true }
+		table.insert(__heartbeat, entry)
+		return {
+			Disconnect = function()
+				entry.active = false
+			end,
+		}
 	end,
 }
 -- RunService.Heartbeat
 rawset(__runService, "Heartbeat", heartbeatSignal)
+rawset(__runService, "IsRunning", function()
+	return true
+end)
 local function fireHeartbeat(dt)
-	for _, fn in __heartbeat do
-		fn(dt)
+	for _, entry in __heartbeat do
+		if entry.active then
+			entry.fn(dt)
+		end
 	end
 end
 
