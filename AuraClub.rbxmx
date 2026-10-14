@@ -119,6 +119,7 @@ local fx = {
 	strobes = {}, -- estrobos
 	screens = {}, -- pantalla LED del DJ
 	mirror = {}, -- facetas de la bola de espejos
+	lamps = {}, -- luces de relleno (cobertura de luz real)
 }
 local lightCount = 0
 
@@ -236,6 +237,24 @@ local function glow(parent, name, x1, y1, z1, x2, y2, z2, color, opts)
 		end
 	end
 	return p
+end
+
+-- luz de relleno: fuente invisible. Los neones brillan pero NO iluminan, asi que sin esto
+-- grandes zonas caminables quedan negras (sobre todo mientras el motor calcula la luz).
+local function lamp(parent, name, x, y, z, color, range, brightness)
+	local p = P(parent, name, CFrame.new(x, y, z), Vector3.new(0.4, 0.4, 0.4), C.black, M.SmoothPlastic, { Transparency = 1, CanCollide = false, CastShadow = false })
+	local l = addLight(p, color, range, false, brightness)
+	table.insert(fx.lamps, { light = l, phase = #fx.lamps * 0.9 })
+	return p
+end
+
+-- rejilla 3x3 de luces de relleno cubriendo todo el piso (separacion 40, alcance 40)
+local function fillGrid(parent, name, y, color, range, brightness)
+	for _, x in { -40, 0, 40 } do
+		for _, z in { -40, 0, 40 } do
+			lamp(parent, name, x, y, z, color, range, brightness)
+		end
+	end
 end
 
 -- estrobo: empieza APAGADO (la luz se enciende solo durante las rafagas)
@@ -821,6 +840,7 @@ local function buildFloor1()
 	slats(f, "SlatNL", "x", -48, -46, -26, 1, 21, 1)
 	slats(f, "SlatNR", "x", -48, 26, 46, 1, 21, 1)
 	slats(f, "SlatW", "z", -48, -46, -28, 1, 21, 1)
+	fillGrid(f, "Fill1", 8, C.purple, 40, 0.9)
 	sign(f, "Floor1Label", 47.75, 16, 24, 10, 3, -1, 0, "LEVEL 1", C.cyan, true)
 end
 
@@ -879,6 +899,7 @@ local function buildFloor2()
 	for i, z in { -30, 22, 38 } do
 		glow(f, "CeilStrip" .. i, -46, y + 21.6, z, 46, y + 22, z + 0.6, C.purple, { cycle = true, phase = i })
 	end
+	fillGrid(f, "Fill2", y + 8, C.magenta, 40, 0.8)
 	neonArt(f, "CeilArt2", -46, 17, 46, 47, y + 21.8, 11, 5, C.magenta)
 	for _, x in { -36, -24, -12, 0, 12, 24, 36 } do
 		for _, z in { 24, 38 } do
@@ -984,6 +1005,8 @@ local function buildFloor3()
 	firePit(f, "FirePit1", -26, y, -4)
 	firePit(f, "FirePit2", -26, y, 30)
 
+	fillGrid(f, "Fill3", y + 7, Color3.fromRGB(120, 110, 255), 40, 0.8)
+
 	-- macetas
 	for i = 0, 7 do
 		local x = -42 + i * 12
@@ -1018,10 +1041,12 @@ local function buildLighting()
 		end
 	end
 	Lighting.ClockTime = 0
-	Lighting.Brightness = 0.5
-	Lighting.Ambient = Color3.fromRGB(26, 16, 46)
-	Lighting.OutdoorAmbient = Color3.fromRGB(24, 16, 46)
-	Lighting.ExposureCompensation = 0.35
+	Lighting.Brightness = 1
+	-- ambiente base morado oscuro pero legible (en Voxel/Compatibility no hay rebote de luz:
+	-- con valores mas bajos el interior se ve negro mientras el motor construye la iluminacion)
+	Lighting.Ambient = Color3.fromRGB(46, 32, 78)
+	Lighting.OutdoorAmbient = Color3.fromRGB(40, 30, 72)
+	Lighting.ExposureCompensation = 0.5
 	Lighting.EnvironmentDiffuseScale = 0.4
 	Lighting.EnvironmentSpecularScale = 1
 	Lighting.ShadowSoftness = 0.25
@@ -1054,7 +1079,7 @@ local function buildLighting()
 		atm = Instance.new("Atmosphere")
 	end
 	atm.Name = "AuraAtmosphere"
-	atm.Density = 0.3
+	atm.Density = 0.2
 	atm.Offset = 0.2
 	atm.Color = Color3.fromRGB(120, 70, 190)
 	atm.Decay = Color3.fromRGB(60, 30, 110)
@@ -1089,6 +1114,12 @@ local GLOW_STEPS = 16
 local glowColors = {}
 for i = 0, GLOW_STEPS do
 	glowColors[i] = Color3.fromHSV(0.5 + 0.4 * i / GLOW_STEPS, 0.85, 1)
+end
+
+local LAMP_STEPS = 8
+local lampColors = {}
+for i = 0, LAMP_STEPS do
+	lampColors[i] = Color3.fromHSV(0.72 + 0.2 * i / LAMP_STEPS, 0.7, 1)
 end
 
 local function startAnimations()
@@ -1158,6 +1189,13 @@ local function startAnimations()
 					if g.light then
 						g.light.Color = c
 					end
+				end
+			end
+			for _, l in fx.lamps do
+				local q = math.floor((0.5 + 0.5 * math.sin(t * 0.35 + l.phase)) * LAMP_STEPS + 0.5)
+				if q ~= l.q then
+					l.q = q
+					l.light.Color = lampColors[q]
 				end
 			end
 			for _, s in fx.signs do

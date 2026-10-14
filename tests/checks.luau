@@ -413,6 +413,43 @@ check("animacion < 1700 escrituras/s", perSec < 1700, perSec)
 -- reejecutar no apila conexiones: la anterior se desconecta
 check("existe handle de conexion para limpieza al relanzar", _G.AuraClubConnection ~= nil)
 
+-- cobertura de luz: >= 90% de las celdas caminables de cada piso con una luz cerca ---
+local lightsList = {}
+for _, d in club:GetDescendants() do
+	if (d:IsA("PointLight") or d:IsA("SpotLight")) and d.Enabled ~= false then
+		local part = d.Parent
+		table.insert(lightsList, { x = part.CFrame.px, y = part.CFrame.py, z = part.CFrame.pz, r = d.Range })
+	end
+end
+local function lit(x, y, z)
+	for _, l in lightsList do
+		local dx, dy, dz = x - l.x, y - l.y, z - l.z
+		if dy < 1 and (dx * dx + dy * dy + dz * dz) <= (0.75 * l.r) ^ 2 then
+			return true
+		end
+	end
+	return false
+end
+for _, lvl in { { 0.2, "piso 1" }, { 24, "piso 2" }, { 48, "piso 3" } } do
+	local tot, ok = 0, 0
+	for i = 0, N - 1 do
+		for j = 0, N - 1 do
+			for _, h in nodes[i][j] do
+				if math.abs(h - lvl[1]) < 0.06 and visited[key(i, j, h)] then
+					tot += 1
+					if lit(ORIGIN + (i + 0.5) * CELL, h + 3, ORIGIN + (j + 0.5) * CELL) then
+						ok += 1
+					end
+				end
+			end
+		end
+	end
+	check(string.format("cobertura de luz %s: %d/%d celdas (%.0f%%)", lvl[2], ok, tot, 100 * ok / math.max(1, tot)), tot > 0 and ok / tot >= 0.9)
+end
+local amb = Lighting.Ambient
+check("ambiente base legible (luminancia media >= 0.15)", (amb.R + amb.G + amb.B) / 3 >= 0.15, (amb.R + amb.G + amb.B) / 3)
+check("luces < 150 con el relleno", lights + 0 < 150 and #lightsList < 150, #lightsList)
+
 -- idempotencia: relanzar no duplica (se prueba aparte en run.sh)
 print(string.format("\nRESULTADO: %d fallo(s)", failures))
 if failures > 0 then

@@ -28,15 +28,22 @@ Elige **una**:
 
 ## Ejecutar y comprobar
 
-1. En **Lighting**, pon **Technology = Future** (no se puede cambiar desde script; es lo que da sombras y reflejos reales).
+1. **Lighting.Technology = Future.** El `.rbxlx` ya lo trae (sin esa propiedad Studio abría el place con *Compatibility* y lo migraba a *Voxel*). Si usas la opción A o B, ponlo tú en **Lighting → Technology** (un script no puede cambiarlo). Guarda el place después para que se conserve.
 2. Pulsa **Play** (F5) en la pestaña Home, no Run.
 3. Abre **View → Output**. Debe aparecer:
    ```
    [AuraClub] Sin musica: CONFIG.MusicId esta vacio (opcional). Pon un audio que puedas usar.
-   [AuraClub] listo: 1472 partes, 73 luces, 3 pisos.
+   [AuraClub] listo: 1499 partes, 100 luces, 3 pisos.
    ```
    No debe haber líneas rojas. Si las hay, copia el texto completo con su número de línea.
 4. Con **Play** el script borra el `Baseplate` y el `SpawnLocation` de la plantilla (los sustituye por el suelo y el spawn del club). Si quieres conservarlos, pon `RemoveTemplateObjects = false` en `CONFIG`.
+
+## Si el interior se ve muy negro
+
+- **Comprueba la versión:** el Output debe decir `listo: 1499 partes, 100 luces`. Si dice `1495 partes` o `1472 partes`, estás ejecutando un archivo antiguo: descarga de nuevo.
+- **Qué pasaba:** los neones y las baldosas brillan pero **no iluminan**. Solo el 32 % de la pista, el 52 % del VIP y el 18 % del rooftop tenían una luz cerca, así que el interior se veía negro hasta que el motor terminaba de calcular la iluminación. Ahora hay una rejilla de luces de relleno por piso (9 por piso, tono morado/rosa, suave) y el ambiente base es más alto (`Ambient` 46,32,78). El test de cobertura exige ≥ 90 % de celdas caminables con luz; está al 100 % en los 3 pisos.
+- **Los primeros segundos:** en Voxel/Compatibility la luz se calcula de forma asíncrona y puede tardar unos segundos tras entrar. Con *Future* es inmediato.
+- **Más claro:** sube `Lighting.Ambient` o `ExposureCompensation` en `buildLighting`, o el brillo de `fillGrid` (último argumento). **Más oscuro:** al revés.
 
 ## Configuración (`CONFIG`, al principio del script)
 
@@ -54,17 +61,18 @@ Colores: tabla `C` (colores fijos), `cycleColor` y `glowColors` (neones que cicl
 ## Auditoría y comprobaciones realizadas (sin Studio)
 
 ```bash
-tests/run.sh        # requiere el binario `luau` (https://github.com/luau-lang/luau/releases)
+tests/run.sh        # requiere `luau` (https://github.com/luau-lang/luau/releases) y python3
 ```
 
-El script se ejecuta contra un **mock de la API de Roblox** (`tests/mock_roblox.luau`) que rechaza clases, propiedades y miembros de `Enum` inexistentes y valida **rangos** (rango de luces ≤ 60, `Angle` ≤ 180, `Transparency` 0–1, bloom, atmósfera…). Comprobaciones (50 en total, todas OK):
+El script se ejecuta contra un **mock de la API de Roblox** (`tests/mock_roblox.luau`) que rechaza clases, propiedades y miembros de `Enum` inexistentes y valida **rangos** (rango de luces ≤ 60, `Angle` ≤ 180, `Transparency` 0–1, bloom, atmósfera…). Comprobaciones (61 en total, todas OK):
 
 - Geometría válida (tamaños/posiciones finitos, todo `Anchored`), 3 pisos con sus huecos (atrio, escaleras, piscina), puerta libre.
 - Escaleras de 1 stud hasta el piso siguiente y **alcanzabilidad a pie** (BFS con cuerpo 2×2 desde el spawn hasta escenario, VIP, rooftop, barras y piscina).
 - **Ninguna pieza visible flota** sin apoyo (el test detecta los fallos de la versión anterior).
 - 90 s simulados de animación sin errores; lasers siempre dentro del atrio; estrobos **nacen apagados** y parpadean en ráfagas; la bola de espejos gira.
-- Presupuesto de red: ~1470 escrituras de propiedades/s (< 1700) y 73 luces (< 150).
+- Presupuesto de red: ~1500 escrituras de propiedades/s (< 1700) y 100 luces (< 150).
 - Relanzar el script no duplica nada: 1 modelo, 4 efectos de iluminación, 1 conexión activa.
+- **Cobertura de luz** ≥ 90 % de las celdas caminables por piso, ambiente base legible, y los archivos generados (`tests/check_files.py`): XML válido, Source idéntico al `.luau` y `Lighting.Technology = Future`.
 - `luau-compile` OK y `luau-analyze` sin avisos (salvo las globales propias de Roblox, que el analizador no conoce).
 
 **Límite:** el mock no renderiza ni simula físicas. No sustituye una prueba visual en Studio.

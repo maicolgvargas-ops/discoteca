@@ -28,13 +28,30 @@ def script_item(referent: str, indent: str) -> str:
     )
 
 
+# Lighting con Technology = Future (Enum.Technology: Legacy 0, Voxel 1, Compatibility 2,
+# ShadowMap 3, Future 4). Sin esta propiedad Studio abre el place con Compatibility y lo
+# migra a Voxel. Los valores de ambiente coinciden con buildLighting() del script.
+LIGHTING = (
+    '\t<Item class="Lighting" referent="RBX1">\n\t\t<Properties>\n'
+    '\t\t\t<string name="Name">Lighting</string>\n'
+    '\t\t\t<token name="Technology">4</token>\n'
+    '\t\t\t<Color3 name="Ambient"><R>0.18039216</R><G>0.1254902</G><B>0.30588236</B></Color3>\n'
+    '\t\t\t<Color3 name="OutdoorAmbient"><R>0.15686275</R><G>0.11764706</G><B>0.28235295</B></Color3>\n'
+    '\t\t\t<float name="Brightness">1</float>\n'
+    '\t\t\t<float name="ExposureCompensation">0.5</float>\n'
+    '\t\t\t<float name="EnvironmentDiffuseScale">0.4</float>\n'
+    '\t\t\t<float name="EnvironmentSpecularScale">1</float>\n'
+    '\t\t\t<float name="ShadowSoftness">0.25</float>\n'
+    '\t\t\t<bool name="GlobalShadows">true</bool>\n'
+    '\t\t</Properties>\n\t</Item>\n'
+)
+
 place = (
     HEADER
     + '\t<Item class="Workspace" referent="RBX0">\n\t\t<Properties>\n'
     '\t\t\t<string name="Name">Workspace</string>\n\t\t</Properties>\n\t</Item>\n'
-    '\t<Item class="Lighting" referent="RBX1">\n\t\t<Properties>\n'
-    '\t\t\t<string name="Name">Lighting</string>\n\t\t</Properties>\n\t</Item>\n'
-    '\t<Item class="ServerScriptService" referent="RBX2">\n\t\t<Properties>\n'
+    + LIGHTING
+    + '\t<Item class="ServerScriptService" referent="RBX2">\n\t\t<Properties>\n'
     '\t\t\t<string name="Name">ServerScriptService</string>\n\t\t</Properties>\n'
     + script_item("RBX3", "\t\t")
     + "\t</Item>\n</roblox>\n"

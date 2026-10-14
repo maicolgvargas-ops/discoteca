@@ -6,3 +6,4 @@ LUAU="${LUAU:-luau}"
 OUT="$(mktemp -d)/run.luau"
 cat tests/mock_roblox.luau src/ServerScriptService/AuraClub.server.luau tests/checks.luau > "$OUT"
 "$LUAU" "$OUT"
+python3 tests/check_files.py
