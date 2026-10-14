@@ -108,6 +108,7 @@ local fx = {
 	beams = {}, -- lasers
 	strobes = {}, -- estrobos
 	screens = {}, -- pantalla LED del DJ
+	mirror = {}, -- facetas de la bola de espejos
 }
 local lightCount = 0
 
@@ -566,6 +567,24 @@ local function buildFloor1()
 		table.insert(fx.strobes, { part = s, light = addLight(s, C.white, 40, true, 6) })
 	end
 
+
+	-- bola de espejos colgada del techo del atrio (gira lento)
+	local mc = Vector3.new(0, 36, -10)
+	B(f, "MirrorRod", mc.X - 0.15, mc.Y + 3, mc.Z - 0.15, mc.X + 0.15, FLOOR_Y[3] - 2, mc.Z + 0.15, C.dark, M.Metal, DECOR)
+	local core = ball(f, "MirrorCore", mc.X, mc.Y, mc.Z, 6, C.dark, M.Metal, { Reflectance = 0.6 })
+	addLight(core, C.white, 40, false, 2)
+	local rings = { { -60, 6 }, { -30, 10 }, { 0, 12 }, { 30, 10 }, { 60, 6 } }
+	for _, ring in rings do
+		local lat = math.rad(ring[1])
+		for k = 0, ring[2] - 1 do
+			local lon = k / ring[2] * math.pi * 2
+			local dir = Vector3.new(math.cos(lat) * math.cos(lon), math.sin(lat), math.cos(lat) * math.sin(lon))
+			local local_cf = CFrame.lookAt(dir * 3, dir * 4)
+			local facet = P(f, "MirrorFacet", CFrame.new(mc) * local_cf, Vector3.new(1.1, 1.1, 0.15), C.white, M.Metal, { Reflectance = 1, CanCollide = false, CastShadow = false })
+			table.insert(fx.mirror, { part = facet, center = mc, offset = local_cf })
+		end
+	end
+
 	-- truss del atrio con 6 lasers (3 por lado)
 	for _, side in { -1, 1 } do
 		local x = side * 22
@@ -852,6 +871,13 @@ local function updateBeams(t)
 	end
 end
 
+local function updateMirror(t)
+	local spin = CFrame.new(fx.mirror[1].center) * CFrame.Angles(0, t * 0.5, 0)
+	for _, m in fx.mirror do
+		m.part.CFrame = spin * m.offset
+	end
+end
+
 local SCREEN_TEXTS = { "AURA", "CLUB", "3 FLOORS", "LET'S GO", "AURA" }
 
 local function startAnimations()
@@ -865,6 +891,7 @@ local function startAnimations()
 		if fast >= 0.05 then
 			fast = 0
 			updateBeams(t)
+			updateMirror(t)
 			-- rafaga de estrobos: 2 s de cada 24 s
 			local burst = (t % 24) > 22
 			local on = burst and (math.floor(t * 14) % 2 == 0)
@@ -914,6 +941,7 @@ buildFloor2()
 buildFloor3()
 buildSpawn()
 buildLighting()
+updateMirror(0)
 updateBeams(0) -- pose inicial correcta antes de aparecer
 club.Parent = Workspace
 startAnimations()

@@ -4,7 +4,7 @@ Discoteca estilo "Aura Club" (neón púrpura/magenta/cian, pista LED, lasers, VI
 
 | Piso | Qué hay |
 |---|---|
-| **1** (y 0) | Hall con alfombra roja y cola de terciopelo, **pista LED 12×12** animada, **escenario DJ** con pantalla LED gigante, altavoces, truss con focos/estrobos, **6 lasers** que barren la pista, barra con botellas, booths y mesas altas |
+| **1** (y 0) | Hall con alfombra roja y cola de terciopelo, **pista LED 12×12** animada, **bola de espejos giratoria**, **escenario DJ** con pantalla LED gigante, altavoces, truss con focos/estrobos, **6 lasers** que barren la pista, barra con botellas, booths y mesas altas |
 | **2** (y 24) | **VIP lounge** de cristal con **balcón** sobre la pista (atrio de doble altura), barra VIP dorada, 8 lounges con sofás y lámparas |
 | **3** (y 48) | **Rooftop**: escenario DJ con arco y cartel, barra, **piscina** neón, fire pits con fuego, loungers, macetas |
 

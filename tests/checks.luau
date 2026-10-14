@@ -338,6 +338,24 @@ for _, d in club:GetDescendants() do
 	end
 end
 check("la pista LED cambia de color", tileBefore ~= tileAfter)
+local mirrorN, mirrorMoved = 0, false
+for _, d in club:GetDescendants() do
+	if d.Name == "MirrorFacet" then
+		mirrorN += 1
+	end
+end
+check("bola de espejos: 44 facetas + nucleo", mirrorN == 44 and club:FindFirstChild("Floor1"):FindFirstChild("MirrorCore") ~= nil, mirrorN)
+local f1 = club:FindFirstChild("Floor1")
+local first
+for _, d in f1:GetChildren() do
+	if d.Name == "MirrorFacet" then
+		first = d
+		break
+	end
+end
+local x0, z0 = first.CFrame.px, first.CFrame.pz
+fireHeartbeat(1 / 30); fireHeartbeat(1 / 30); fireHeartbeat(1 / 30)
+check("la bola de espejos gira", math.abs(first.CFrame.px - x0) + math.abs(first.CFrame.pz - z0) > 0.001)
 local screen = club:FindFirstChild("Floor1"):FindFirstChild("DJScreen")
 check("pantalla LED con texto", screen ~= nil and #screen:GetChildren() > 0)
 
