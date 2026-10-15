@@ -1,34 +1,5 @@
-<?xml version="1.0" encoding="utf-8"?>
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
-	<Item class="Workspace" referent="RBX0">
-		<Properties>
-			<string name="Name">Workspace</string>
-		</Properties>
-	</Item>
-	<Item class="Lighting" referent="RBX1">
-		<Properties>
-			<string name="Name">Lighting</string>
-			<token name="Technology">4</token>
-			<Color3 name="Ambient"><R>0.21176471</R><G>0.18823530</G><B>0.20392157</B></Color3>
-			<Color3 name="OutdoorAmbient"><R>0.18823530</R><G>0.17254902</G><B>0.21176471</B></Color3>
-			<float name="Brightness">1</float>
-			<float name="ExposureCompensation">0.5</float>
-			<float name="EnvironmentDiffuseScale">0.4</float>
-			<float name="EnvironmentSpecularScale">1</float>
-			<float name="ShadowSoftness">0.35</float>
-			<bool name="GlobalShadows">true</bool>
-		</Properties>
-	</Item>
-	<Item class="ServerScriptService" referent="RBX2">
-		<Properties>
-			<string name="Name">ServerScriptService</string>
-		</Properties>
-		<Item class="Script" referent="RBX3">
-			<Properties>
-				<string name="Name">MayaClub</string>
-				<token name="RunContext">0</token>
-				<ProtectedString name="Source"><![CDATA[--[[
-	MAYA CLUB - discoteca de 3 pisos generada 100% por codigo (Luau).
+--[[
+	LA ALFOMBRA ROJA - discoteca de 3 pisos generada 100% por codigo (Luau).
 
 	Piso 1: hall + pista LED + escenario DJ + barra + booths + lasers
 	Piso 2: VIP lounge de cristal con barra, sofas y balcon sobre la pista
@@ -46,17 +17,34 @@ local Lighting = game:GetService("Lighting")
 local RunService = game:GetService("RunService")
 
 local CONFIG = {
-	Name = "MayaClub",
+	Name = "LaAlfombraRoja",
+	-- PERFIL GRAFICO: "Equilibrado" (por defecto, prioriza fluidez) o "Alta" (mas luces con sombra,
+	-- mas facetas, efectos de profundidad). Solo cambia lo que construye el script: no toca la
+	-- calidad grafica del jugador ni del editor.
+	Quality = "Equilibrado",
 	-- OPCIONAL. ID de un audio que TENGAS permiso de usar. Acepta "rbxassetid://123", "123" o 123.
 	-- Vacio = sin musica (el club funciona igual). No se incluye ningun ID por defecto.
 	MusicId = "",
 	MusicVolume = 2,
 	-- Borra el Baseplate y el SpawnLocation de la plantilla (tapan/duplican el suelo del club)
 	RemoveTemplateObjects = true,
-	TileCount = 16, -- pista LED de TileCount x TileCount paneles (la pista mide 64 x 64)
-	-- OPCIONAL. Imagen del logo (PNG en assets/MayaClub_logo_reference.png) ya SUBIDA a tu cuenta:
+	TileCount = 0, -- 0 = segun el perfil (12 en Equilibrado, 16 en Alta); la pista mide 64 x 64
+	-- OPCIONAL. Imagen del logo (PNG en assets/LaAlfombraRoja_logo_reference.png) ya SUBIDA a tu cuenta:
 	-- "rbxassetid://123", "123" o 123. Vacio = se usa el monograma y el texto hechos por codigo.
 	LogoImageId = "",
+	-- CABINA DE CONTROL DE LUCES (junto al DJ). Un solo operador a la vez; las peticiones se validan
+	-- en el servidor. Access: "Todos" (cualquier jugador), "Lista" (UserIds / grupo) o "Dueno"
+	-- (el creador del lugar; en Studio se permite siempre para poder probar).
+	Control = {
+		Enabled = true,
+		Access = "Todos",
+		UserIds = {}, -- con Access = "Lista": { 123456, 789012 }
+		GroupId = 0, -- opcional: 0 = sin grupo; si no, MinRank = rango minimo del grupo
+		MinRank = 1,
+		Range = 14, -- studs desde la cabina para tomar/mantener el control (se cierra a 3x)
+		IdleTimeout = 180, -- segundos sin acciones antes de liberar el control
+		MaxRequestsPerSecond = 8, -- limite de peticiones por jugador (cubo de fichas)
+	},
 	LowPerformance = false, -- true: animaciones menos frecuentes (equipos o servidores justos)
 	Boundary = true, -- barrera invisible sobre el muro perimetral (no se puede saltar ni escalar)
 
@@ -94,9 +82,43 @@ end
 CONFIG.MusicId = normalizeAudioId(CONFIG.MusicId)
 CONFIG.LogoImageId = normalizeAudioId(CONFIG.LogoImageId)
 
+-- PERFILES GRAFICOS (decision de construccion; el jugador sigue eligiendo su calidad en Roblox)
+local PROFILES = {
+	Equilibrado = {
+		tiles = 12, -- baldosas por lado de la pista
+		mirrorStep = 18, -- grados entre anillos de la bola de espejos (menos facetas)
+		shadowLights = 4, -- luces con sombras (la parte mas cara del renderizado)
+		laserLayers = 2, -- capas translucidas por laser
+		shaftEvery = 2, -- 1 de cada N conos de luz
+		haze = false, -- sin humo de escenario ni de calderos (particulas)
+		dof = false, -- sin profundidad de campo
+		bloomScale = 0.75,
+		pruneMinor = true, -- quita las luces decorativas menores (velas, calabazas, llamas, tiras de barra)
+		fallbackRates = { fast = 0.1, tiles = 0.5, glows = 0.5, mirror = 0.25 },
+	},
+	Alta = {
+		tiles = 16,
+		mirrorStep = 12,
+		shadowLights = 12,
+		laserLayers = 3,
+		shaftEvery = 1,
+		haze = true,
+		dof = true,
+		bloomScale = 1,
+		pruneMinor = false,
+		fallbackRates = { fast = 0.05, tiles = 0.25, glows = 0.25, mirror = 0.15 },
+	},
+}
+local PROFILE_NAME = (PROFILES[CONFIG.Quality] and CONFIG.Quality) or "Equilibrado"
+local PROFILE = PROFILES[PROFILE_NAME]
+local TILE_COUNT = (CONFIG.TileCount and CONFIG.TileCount > 0) and CONFIG.TileCount or PROFILE.tiles
+local shadowBudget = PROFILE.shadowLights
+
 -- segundos entre actualizaciones de cada efecto (cada cambio de propiedad se replica a los clientes)
-local RATES = CONFIG.LowPerformance and { fast = 0.1, tiles = 0.5, glows = 0.5, mirror = 0.3 }
-	or { fast = 0.05, tiles = 0.25, glows = 0.25, mirror = 0.15 }
+local RATES = PROFILE.fallbackRates
+if CONFIG.LowPerformance then
+	RATES = { fast = RATES.fast * 2, tiles = RATES.tiles * 2, glows = RATES.glows * 2, mirror = RATES.mirror * 2 }
+end
 
 local FLOOR_Y = { 0, 24, 48 }
 local FLOOR_H = 22 -- altura libre entre piso y techo (losa de 2 studs)
@@ -276,6 +298,7 @@ local function ball(parent, name, x, y, z, diameter, color, material, extra)
 end
 
 local lightShaft -- se define mas abajo (necesita lighten)
+local shaftSeen = 0
 
 local function addLight(part, color, range, spot, brightness, shadows)
 	local l
@@ -289,7 +312,12 @@ local function addLight(part, color, range, spot, brightness, shadows)
 	l.Color = color
 	l.Range = range
 	l.Brightness = (brightness or 1.2) * LOOK.LightIntensity
-	l.Shadows = (shadows and LOOK.KeyShadows) and true or false
+	local useShadow = false
+	if shadows and LOOK.KeyShadows and shadowBudget > 0 then
+		shadowBudget -= 1
+		useShadow = true
+	end
+	l.Shadows = useShadow
 	l.Parent = part
 	lightCount += 1
 	return l
@@ -317,6 +345,9 @@ local function glow(parent, name, x1, y1, z1, x2, y2, z2, color, opts)
 		end
 		-- cono de luz translucido bajo el foco: opts.shaft = { largo, ancho arriba, ancho abajo }
 		if opts.shaft and lightShaft then
+			shaftSeen += 1
+		end
+		if opts.shaft and lightShaft and shaftSeen % PROFILE.shaftEvery == 0 then
 			local b = lightShaft(p, color, opts.shaft[1], opts.shaft[2], opts.shaft[3])
 			if entry then
 				entry.beam = b
@@ -368,6 +399,12 @@ local function cycleColor(t, phase)
 end
 
 -- cartel con SurfaceGui. (dx,dz) = hacia donde mira el cartel
+local GOLD_TXT = Color3.fromRGB(232, 188, 98)
+-- "ROJA" siempre en rojo (identidad del logo): texto enriquecido
+local function brandRich(text)
+	return (string.gsub(text, "ROJA", '<font color="#D4182A">ROJA</font>'))
+end
+
 local function sign(parent, name, cx, cy, cz, w, h, dx, dz, text, color, cycle, style, image)
 	local pos = Vector3.new(cx, cy, cz)
 	local p = P(
@@ -394,14 +431,25 @@ local function sign(parent, name, cx, cy, cz, w, h, dx, dz, text, color, cycle, 
 	tl.TextColor3 = color
 	tl.Parent = gui
 	if style == "chrome" then
-		-- texto cromado: degradado blanco-azulado con contorno violeta (como el logotipo)
-		tl.TextColor3 = Color3.fromRGB(235, 238, 250)
-		tl.TextStrokeColor3 = C.violet
-		tl.TextStrokeTransparency = 0.3
-		local g = Instance.new("UIGradient")
-		g.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(150, 190, 255))
-		g.Rotation = 90
-		g.Parent = tl
+		-- rotulo de marca: serif dorada sobre negro con ROJA en rojo y marco dorado fino
+		tl.Font = Enum.Font.Bodoni
+		tl.RichText = true
+		tl.Text = brandRich(text)
+		tl.TextColor3 = GOLD_TXT
+		local border = Instance.new("Frame")
+		border.Name = "Border"
+		border.BackgroundTransparency = 1
+		border.Size = UDim2.fromScale(0.985, 0.94)
+		border.Position = UDim2.fromScale(0.0075, 0.03)
+		border.Parent = gui
+		local bs = Instance.new("UIStroke")
+		bs.Color = GOLD_TXT
+		bs.Thickness = 2
+		bs.Parent = border
+	elseif style == "screen" then
+		tl.Font = Enum.Font.Bodoni
+		tl.RichText = true
+		tl.Text = brandRich(text)
 	end
 	if image and image ~= "" then
 		-- logo opcional importado como imagen: va a la izquierda del texto
@@ -724,6 +772,9 @@ end
 
 -- humo / niebla de escenario
 local function haze(parent, name, x, y, z, size)
+	if not PROFILE.haze then
+		return
+	end
 	local p = P(parent, name, CFrame.new(x, y, z), Vector3.new(1, 1, 1), C.white, M.SmoothPlastic, { Transparency = 1, CanCollide = false })
 	local sm = Instance.new("Smoke")
 	sm.Size = size
@@ -1003,6 +1054,9 @@ local function cauldron(parent, name, x, y, z)
 		pball(parent, name .. "_Bubble" .. i, CFrame.new(x + b[1], y + 1.5 + b[3] / 2, z + b[2]), b[3], Color3.fromRGB(150, 255, 120), M.Neon, DECOR)
 	end
 	flameLight(liquid, Color3.fromRGB(90, 255, 70), 14, 1.1)
+	if not PROFILE.haze then
+		return
+	end
 	local sm = Instance.new("Smoke")
 	sm.Size = 2.5
 	sm.Opacity = 0.12
@@ -1035,6 +1089,9 @@ local function laserBeam(head, color)
 	tip.Name = "LaserTip"
 	tip.Parent = head
 	for i, L in LASER_LAYERS do
+		if i > PROFILE.laserLayers then
+			break
+		end
 		local b = Instance.new("Beam")
 		b.Name = "LaserBeam" .. i
 		b.Attachment0 = a0
@@ -1090,12 +1147,12 @@ lightShaft = function(part, color, length, w0, w1)
 end
 
 ------------------------------------------------------------------------
--- Identidad MAYA CLUB: monograma M plateado con acentos violeta/cian (recreado con piezas)
+-- Identidad LA ALFOMBRA ROJA: corona dorada + serif dorada + ROJA en rojo (recreado con piezas y texto)
 ------------------------------------------------------------------------
 local SILVER, VIOLET, NAVY = C.silver, C.violet, C.navy
 
--- trazo 2D del monograma entre (u1,v1) y (u2,v2). zoff > 0 queda DETRAS de la cara frontal.
--- base = CFrame del monograma (origen abajo-centro, frente = -Z local), S = escala
+-- trazo 2D del logo entre (u1,v1) y (u2,v2). zoff > 0 queda DETRAS de la cara frontal.
+-- base = CFrame del logo (origen abajo-centro, frente = -Z local), S = escala
 local function mbar(parent, name, base, S, u1, v1, u2, v2, thick, depth, zoff, color, material)
 	local len = math.sqrt((u2 - u1) ^ 2 + (v2 - v1) ^ 2) * S
 	local ang = math.atan2(v2 - v1, u2 - u1)
@@ -1110,34 +1167,77 @@ local function mbar(parent, name, base, S, u1, v1, u2, v2, thick, depth, zoff, c
 	)
 end
 
--- monograma M: 2 pilares exteriores con punta, 2 pilares interiores, 2 diagonales que forman la V,
--- bloque central, contorno violeta de neon por detras y acentos cian por delante.
--- Mide 44 x 38 studs a escala 1. (x,y,z) = abajo-centro; (nx,nz) = hacia donde mira. withPlate = placa oscura.
+local LOGO_GOLD = Color3.fromRGB(226, 178, 86)
+local LOGO_RED = Color3.fromRGB(212, 24, 42)
+
+local function logoLabel(gui, name, text, font, color, x, y, w, h, gradient)
+	local l = Instance.new("TextLabel")
+	l.Name = name
+	l.BackgroundTransparency = 1
+	l.Position = UDim2.fromScale(x, y)
+	l.Size = UDim2.fromScale(w, h)
+	l.Text = text
+	l.TextScaled = true
+	l.Font = font
+	l.TextColor3 = color
+	l.Parent = gui
+	if gradient then
+		local g = Instance.new("UIGradient")
+		g.Color = ColorSequence.new(Color3.fromRGB(255, 236, 170), Color3.fromRGB(196, 142, 52))
+		g.Rotation = 90
+		g.Parent = l
+	end
+	return l
+end
+
+local function logoLine(gui, name, x, y, w)
+	local f = Instance.new("Frame")
+	f.Name = name
+	f.BackgroundColor3 = LOGO_GOLD
+	f.BorderSizePixel = 0
+	f.Position = UDim2.fromScale(x, y)
+	f.Size = UDim2.fromScale(w, 0.006)
+	f.Parent = gui
+end
+
+-- LOGO "LA ALFOMBRA ROJA": corona dorada arriba (piezas), "LA" y "ALFOMBRA" en serif dorada,
+-- "ROJA" en rojo y filetes dorados, sobre negro. Mide 50 x 42 studs a escala 1 (la placa).
+-- (x,y,z) = abajo-centro; (nx,nz) = hacia donde mira. withPlate = placa negra visible.
+-- Con CONFIG.LogoImageId la placa muestra esa imagen en lugar de la corona y el texto.
 local function monogram(parent, name, x, y, z, nx, nz, S, withPlate)
 	local base = CFrame.lookAt(Vector3.new(x, y, z), Vector3.new(x + nx, y, z + nz))
-	local strokes = {
-		{ -19, 1, -19, 27, 6 }, -- pilar exterior
-		{ -22, 26, -15.5, 37, 3.2 }, -- punta del pilar exterior
-		{ -10, 2, -10, 22, 4 }, -- pilar interior
-		{ -13, 34, -1, 15, 5.5 }, -- diagonal hacia el centro
-	}
-	for i, st in strokes do
-		for _, sx in { -1, 1 } do
-			local n = name .. "_" .. i .. (sx < 0 and "L" or "R")
-			mbar(parent, n .. "_Edge", base, S, sx * st[1], st[2], sx * st[3], st[4], st[5] + 1.1, 0.4, 0.45, VIOLET, M.Neon)
-			mbar(parent, n, base, S, sx * st[1], st[2], sx * st[3], st[4], st[5], 1.2, 0, SILVER, M.Metal)
-		end
+	local plate = P(parent, name .. "_Plate", base * CFrame.new(0, 19 * S, 0.85 * S), Vector3.new(50 * S, 42 * S, math.max(0.5 * S, 0.06)), C.black, M.SmoothPlastic, { CanCollide = false, CastShadow = false, Reflectance = 0.12, Transparency = withPlate and 0 or 1 })
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = math.clamp(20 / S, 20, 400)
+	gui.LightInfluence = 0
+	gui.Parent = plate
+	if CONFIG.LogoImageId ~= "" then
+		local img = Instance.new("ImageLabel")
+		img.Name = "Logo"
+		img.BackgroundTransparency = 1
+		img.Image = CONFIG.LogoImageId
+		img.ScaleType = Enum.ScaleType.Fit
+		img.Size = UDim2.fromScale(1, 1)
+		img.Parent = gui
+		return
 	end
-	mbar(parent, name .. "_CoreEdge", base, S, 0, 0.2, 0, 16, 8.4, 0.4, 0.45, VIOLET, M.Neon)
-	mbar(parent, name .. "_Core", base, S, 0, 0.5, 0, 16, 7, 1.2, 0, SILVER, M.Metal)
-	for _, sx in { -1, 1 } do
-		mbar(parent, name .. "_CyanV" .. sx, base, S, sx * 12.2, 33, sx * 0.6, 16.6, 0.7, 0.3, -0.75, C.cyan, M.Neon)
-		mbar(parent, name .. "_CyanOut" .. sx, base, S, sx * 16.4, 4, sx * 16.4, 23, 0.6, 0.3, -0.75, C.cyan, M.Neon)
-		mbar(parent, name .. "_CyanIn" .. sx, base, S, sx * 8.0, 4, sx * 8.0, 19, 0.6, 0.3, -0.75, C.cyan, M.Neon)
+	-- corona: banda, contorno en zigzag de 5 puntas y 3 perlas
+	mbar(parent, name .. "_CrownBand", base, S, -5.4, 29.4, 5.4, 29.4, 1.5, 1.2, 0, LOGO_GOLD, M.Metal)
+	local pts = { { -5.4, 29.4 }, { -5.9, 35.4 }, { -2.7, 32.2 }, { 0, 37.2 }, { 2.7, 32.2 }, { 5.9, 35.4 }, { 5.4, 29.4 } }
+	for i = 1, #pts - 1 do
+		mbar(parent, name .. "_Crown" .. i, base, S, pts[i][1], pts[i][2], pts[i + 1][1], pts[i + 1][2], 0.8, 1.2, 0, LOGO_GOLD, M.Metal)
 	end
-	if withPlate then
-		P(parent, name .. "_Plate", base * CFrame.new(0, 19 * S, 0.85 * S), Vector3.new(50 * S, 42 * S, 0.5 * S), NAVY, M.Metal, DECOR)
+	for i, pt in { { -5.9, 36.2 }, { 0, 38 }, { 5.9, 36.2 } } do
+		P(parent, name .. "_Pearl" .. i, base * CFrame.new(pt[1] * S, pt[2] * S, 0), Vector3.new(1.3 * S, 1.3 * S, 1.3 * S), LOGO_GOLD, M.Metal, withShape(Enum.PartType.Ball, DECOR))
 	end
+	logoLabel(gui, "LA", "LA", Enum.Font.Bodoni, LOGO_GOLD, 0.3, 0.255, 0.4, 0.1, true)
+	logoLine(gui, "LineTop", 0.12, 0.385, 0.76)
+	logoLabel(gui, "ALFOMBRA", "ALFOMBRA", Enum.Font.Bodoni, LOGO_GOLD, 0.04, 0.4, 0.92, 0.22, true)
+	logoLine(gui, "LineMid", 0.12, 0.628, 0.76)
+	logoLabel(gui, "ROJA", "ROJA", Enum.Font.Bodoni, LOGO_RED, 0.18, 0.64, 0.64, 0.22, false)
+	logoLine(gui, "LineBottom", 0.12, 0.885, 0.76)
 end
 
 -- monograma pegado a una pared: (wx,wz) = punto de la pared, (nx,nz) = normal saliendo de ella
@@ -1553,8 +1653,8 @@ local function buildWorld()
 
 	-- carteles direccionales y nombres de calle
 	signPost(s, "DirSignA", 22, 0, 122, 9, 9, 2.2, 0, -1, "PARQUEADERO v", C.cyan)
-	signPost(s, "DirSignB", 22, 0, 122.9, 9, 9, 2.2, 0, 1, "MAYA CLUB ^", C.magenta)
-	signPost(s, "NameSignS", -124, 0, 120, 8, 8, 2, 0, -1, "AV. MAYA", C.white)
+	signPost(s, "DirSignB", 22, 0, 122.9, 9, 9, 2.2, 0, 1, "LA ALFOMBRA ROJA ^", C.magenta)
+	signPost(s, "NameSignS", -124, 0, 120, 8, 8, 2, 0, -1, "AV. ALFOMBRA", C.white)
 	signPost(s, "NameSignN", 124, 0, -120, 8, 8, 2, 0, 1, "CALLE LUNA", C.white)
 	signPost(s, "NameSignW", -120, 0, -60, 8, 8, 2, 1, 0, "CALLE SOL", C.white)
 	signPost(s, "NameSignE", 120, 0, 60, 8, 8, 2, -1, 0, "CALLE ESTRELLA", C.white)
@@ -1698,8 +1798,8 @@ local function buildShell()
 		glow(e, "Corner" .. i, c[1] - 0.2, 0, c[2] - 0.2, c[1] + 0.2, FLOOR_Y[3], c[2] + 0.2, C.warmWhite, { cycle = true, phase = i })
 	end
 
-	-- letrero de la entrada: placa oscura con texto cromado MAYA CLUB y marco de neon
-	sign(e, "MainSign", 0, 18.5, 80.3, 56, 9, 0, 1, "MAYA CLUB", SILVER, false, "chrome", CONFIG.LogoImageId)
+	-- letrero de la entrada: placa negra con serif dorada LA ALFOMBRA ROJA y marco dorado
+	sign(e, "MainSign", 0, 18.5, 80.3, 56, 9, 0, 1, "LA ALFOMBRA ROJA", SILVER, false, "chrome", CONFIG.LogoImageId)
 	glow(e, "MainSignFrameT", -28.4, 23, 80.2, 28.4, 23.4, 80.5, C.warmWhite, { cycle = true })
 	glow(e, "MainSignFrameB", -28.4, 13.6, 80.2, 28.4, 14, 80.5, C.cyan, { cycle = true })
 	glow(e, "MainSignFrameL", -28.4, 13.6, 80.2, -28, 23.4, 80.5, C.warmWhite, { cycle = true })
@@ -1771,15 +1871,186 @@ end
 ------------------------------------------------------------------------
 -- PISO 1: hall, pista LED, escenario DJ, 2 barras, booths y lobby
 ------------------------------------------------------------------------
+------------------------------------------------------------------------
+-- ZONA "LA ALFOMBRA ROJA": alfombra, postes dorados con cordones, photocall, softboxes y detalles
+------------------------------------------------------------------------
+local RED = Color3.fromRGB(168, 18, 34)
+local GOLD_FX = { Reflectance = 0.6 }
+local GOLD_DECOR = { CanCollide = false, CastShadow = false, Reflectance = 0.6 }
+
+local function stanchion(parent, name, x, z)
+	cyl(parent, name .. "_Base", x, 0.15, z, 0.3, 2.0, C.gold, M.Metal, GOLD_FX)
+	cyl(parent, name .. "_Pole", x, 1.7, z, 3.0, 0.34, C.gold, M.Metal, GOLD_FX)
+	ball(parent, name .. "_Top", x, 3.25, z, 0.9, C.gold, M.Metal, GOLD_FX)
+end
+
+-- cordon rojo que cuelga entre dos postes (no colisiona)
+local function cordon(parent, name, x1, z1, x2, z2)
+	local a, b = Vector3.new(x1, 3.0, z1), Vector3.new(x2, 3.0, z2)
+	local mid = (a + b) / 2 - Vector3.new(0, 0.9, 0)
+	seg(parent, name .. "_RopeA", a, mid, 0.3, RED, M.Fabric, DECOR)
+	seg(parent, name .. "_RopeB", mid, b, 0.3, RED, M.Fabric, DECOR)
+end
+
+-- softbox de fotografia sobre tripode: cuerpo negro, difusor blanco con aro dorado y foco calido
+local function softbox(parent, name, x, z, tx, tz)
+	cyl(parent, name .. "_Pole", x, 4.2, z, 8.4, 0.3, C.black, M.Metal, { CanCollide = false })
+	for k = 0, 2 do
+		local a = k * 2 * math.pi / 3 + 0.5
+		seg(parent, name .. "_Leg" .. k, Vector3.new(x + 1.9 * math.cos(a), 0.1, z + 1.9 * math.sin(a)), Vector3.new(x, 5.8, z), 0.18, C.black, M.Metal, DECOR)
+	end
+	local cf = CFrame.lookAt(Vector3.new(x, 9.2, z), Vector3.new(tx, 6, tz))
+	P(parent, name .. "_Box", cf * CFrame.new(0, 0, 0.5), Vector3.new(4.2, 4.2, 1.8), C.black, M.SmoothPlastic, { CanCollide = false, Reflectance = 0.2 })
+	P(parent, name .. "_Rim", cf * CFrame.new(0, 0, -0.42), Vector3.new(4.4, 4.4, 0.12), C.gold, M.Metal, GOLD_DECOR)
+	local diff = P(parent, name .. "_Diffuser", cf * CFrame.new(0, 0, -0.55), Vector3.new(3.8, 3.8, 0.2), Color3.fromRGB(236, 228, 214), M.Neon, { CanCollide = false, CastShadow = false })
+	local l = addLight(diff, Color3.fromRGB(255, 240, 222), 34, true, 1.4, false)
+	l.Face = Enum.NormalId.Front
+	l.Angle = 65
+end
+
+-- camara de video en tripode apuntando a la alfombra
+local function videoCamera(parent, name, x, z, tx, tz)
+	cyl(parent, name .. "_Pole", x, 2.6, z, 5.2, 0.3, C.black, M.Metal, { CanCollide = false })
+	for k = 0, 2 do
+		local a = k * 2 * math.pi / 3 + 0.3
+		seg(parent, name .. "_Leg" .. k, Vector3.new(x + 1.5 * math.cos(a), 0.1, z + 1.5 * math.sin(a)), Vector3.new(x, 3.6, z), 0.16, C.black, M.Metal, DECOR)
+	end
+	local cf = CFrame.lookAt(Vector3.new(x, 6.0, z), Vector3.new(tx, 5.2, tz))
+	P(parent, name .. "_Body", cf, Vector3.new(1.7, 1.5, 3.2), C.black, M.SmoothPlastic, { CanCollide = false, Reflectance = 0.25 })
+	P(parent, name .. "_Lens", cf * CFrame.new(0, 0, -2.1) * CFrame.Angles(0, math.pi / 2, 0), Vector3.new(1.0, 1.1, 1.1), C.dark, M.Metal, withShape(Enum.PartType.Cylinder, { CanCollide = false }))
+	P(parent, name .. "_Screen", cf * CFrame.new(0.95, 0.1, 0.6), Vector3.new(0.1, 1.0, 1.3), Color3.fromRGB(150, 170, 190), M.Glass, { CanCollide = false, Reflectance = 0.2 })
+end
+
+-- maceta dorada con palmera de frondas largas
+local function goldPalm(parent, name, x, z)
+	cyl(parent, name .. "_Planter", x, 2.2, z, 4.4, 4.2, C.gold, M.Metal, GOLD_FX)
+	cyl(parent, name .. "_Trunk", x, 6.4, z, 4.4, 0.55, Color3.fromRGB(86, 62, 40), M.Wood, DECOR)
+	for k = 0, 6 do
+		local a = k * 2 * math.pi / 7
+		seg(parent, name .. "_Frond" .. k, Vector3.new(x, 8.6, z), Vector3.new(x + 3.6 * math.cos(a), 7.4, z + 3.6 * math.sin(a)), 0.5, Color3.fromRGB(52, 104, 62), M.SmoothPlastic, DECOR)
+	end
+end
+
+local function buildRedCarpet(f)
+	-- alfombra: pasillo central desde la puerta y brazo ancho (16) hasta el photocall, con filete dorado
+	B(f, "RedCarpet", -77.2, 0, 56, -6, 0.12, 72, RED, M.Fabric, DECOR)
+	for i, z in { 55.8, 71.9 } do
+		B(f, "CarpetEdge" .. i, -77.2, 0, z, -6, 0.14, z + 0.3, C.gold, M.Metal, GOLD_DECOR)
+	end
+	for i, x in { -6.3, 6 } do
+		B(f, "CarpetEdgeC" .. i, x, 0, 10, x + 0.3, 0.14, 78, C.gold, M.Metal, GOLD_DECOR)
+	end
+
+	-- postes dorados con cordones rojos a ambos lados del brazo (el lado este queda abierto)
+	local xs = { -70, -60, -50, -40, -30, -20, -12 }
+	for _, z in { 54.6, 73.4 } do
+		for i, x in xs do
+			stanchion(f, "Stanchion", x, z)
+			if i < #xs then
+				cordon(f, "Cordon", x, z, xs[i + 1], z)
+			end
+		end
+	end
+
+	-- photocall: panel negro apoyado en la pared oeste con marco dorado y el logo repetido
+	B(f, "PhotocallPanel", -78, 0.4, 53, -77.2, 14, 75, Color3.fromRGB(12, 12, 14), M.SmoothPlastic, { Reflectance = 0.08 })
+	B(f, "PhotocallPlinth", -78, 0, 52.6, -76.4, 0.4, 75.4, C.black, M.Marble, { Reflectance = 0.3 })
+	B(f, "PhotocallFrameT", -78, 14, 52.6, -76.9, 14.8, 75.4, C.gold, M.Metal, GOLD_FX)
+	B(f, "PhotocallFrameL", -78, 0.4, 52.6, -76.9, 14, 53.2, C.gold, M.Metal, GOLD_FX)
+	B(f, "PhotocallFrameR", -78, 0.4, 74.8, -76.9, 14, 75.4, C.gold, M.Metal, GOLD_FX)
+	monogram(f, "PhotocallLogo", -77.2, 2.2, 64, 1, 0, 0.22, true)
+	for i, z in { 55.6, 72.4 } do
+		for j, y in { 1.2, 5.0, 8.8 } do
+			monogram(f, "PhotocallMini" .. i .. j, -77.2, y, z, 1, 0, 0.075, false)
+		end
+	end
+
+	-- softboxes a ambos lados y camara de video, palmeras doradas y mesas de champan
+	softbox(f, "SoftboxN", -52, 51.5, -70, 62)
+	softbox(f, "SoftboxS", -52, 76, -70, 66)
+	videoCamera(f, "VideoCam", -22, 51.5, -70, 64)
+	goldPalm(f, "CarpetPalmN", -73.5, 51.5)
+	goldPalm(f, "CarpetPalmS", -73.5, 76.5)
+	for i, x in { -64, -38 } do
+		roundTable(f, "CarpetTable" .. i, x, 0, 49, 1.6, true)
+		cyl(f, "CarpetBucket" .. i, x - 0.6, 5.2, 49, 1.4, 1.5, C.gold, M.Metal, { CanCollide = false, Reflectance = 0.6 })
+		cyl(f, "CarpetBottle" .. i, x - 0.6, 6.3, 49, 2.0, 0.5, Color3.fromRGB(24, 44, 30), M.Glass, { CanCollide = false })
+		candleCluster(f, "CarpetCandle" .. i, x + 0.7, 4.5, 49, false)
+	end
+	lamp(f, "CarpetFill", -66, 9, 64, C.warmWhite, 34, 0.9)
+	lamp(f, "CarpetFillE", -30, 9, 64, C.warmWhite, 30, 0.8)
+	sign(f, "CarpetSign", -40, 9, 77.75, 26, 3, 0, -1, "BIENVENIDOS - FOTOS", SILVER, false, "chrome")
+end
+
+------------------------------------------------------------------------
+-- CABINA DE CONTROL DE LUCES (escenario, a la izquierda del DJ): consola negra con filete dorado,
+-- 8 faders, 3 pantallas y placa de operador. Mira a la pista; el operador se pone al norte.
+------------------------------------------------------------------------
+local function buildControlBooth(f)
+	local y0 = LAYOUT.stage.top
+	local x1, x2, z1, z2 = -26, -14, -72.5, -68.5
+	B(f, "LightDesk_Base", x1, y0, z1, x2, y0 + 3, z2, C.black, M.SmoothPlastic, LACQUER)
+	B(f, "LightDesk_Top", x1 - 0.3, y0 + 3, z1 - 0.3, x2 + 0.3, y0 + 3.3, z2 + 0.3, C.black, M.Marble, { Reflectance = 0.3 })
+	B(f, "LightDesk_TrimF", x1 - 0.3, y0 + 2.7, z2 + 0.3, x2 + 0.3, y0 + 3, z2 + 0.45, C.gold, M.Metal, GOLD_DECOR)
+	B(f, "LightDesk_TrimL", x1 - 0.45, y0 + 2.7, z1 - 0.3, x1 - 0.3, y0 + 3, z2 + 0.45, C.gold, M.Metal, GOLD_DECOR)
+	B(f, "LightDesk_TrimR", x2 + 0.3, y0 + 2.7, z1 - 0.3, x2 + 0.45, y0 + 3, z2 + 0.45, C.gold, M.Metal, GOLD_DECOR)
+	for i = 0, 7 do
+		local cx = x1 + 1.5 + i * 1.3
+		B(f, "LightDesk_Slot" .. i, cx - 0.12, y0 + 3.3, z1 + 0.6, cx + 0.12, y0 + 3.38, z1 + 2.6, C.dark, M.Metal, DECOR)
+		local kz = z1 + 0.9 + ((i * 37) % 10) / 10 * 1.4
+		B(f, "LightDesk_Knob" .. i, cx - 0.35, y0 + 3.38, kz - 0.2, cx + 0.35, y0 + 3.7, kz + 0.2, C.gold, M.Metal, GOLD_DECOR)
+	end
+	for i, label in { "PISTA - VIP", "ROOFTOP - ALFOMBRA", "EFECTOS" } do
+		local cx = -23.5 + (i - 1) * 3.5
+		B(f, "LightDesk_Stand" .. i, cx - 0.15, y0 + 3.3, z2 - 0.6, cx + 0.15, y0 + 3.7, z2 - 0.4, C.dark, M.Metal, DECOR)
+		local cf = CFrame.lookAt(Vector3.new(cx, y0 + 4.4, z2 - 0.5), Vector3.new(cx, y0 + 4.4, z2 - 1.5))
+		local scr = P(f, "LightDesk_Screen" .. i, cf, Vector3.new(3.1, 1.5, 0.15), C.black, M.SmoothPlastic, { CanCollide = false, Reflectance = 0.1 })
+		local gui = Instance.new("SurfaceGui")
+		gui.Face = Enum.NormalId.Front
+		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		gui.PixelsPerStud = 40
+		gui.LightInfluence = 0
+		gui.Parent = scr
+		local tl = Instance.new("TextLabel")
+		tl.BackgroundTransparency = 1
+		tl.Size = UDim2.fromScale(0.9, 0.5)
+		tl.Position = UDim2.fromScale(0.05, 0.25)
+		tl.Text = label
+		tl.TextScaled = true
+		tl.Font = Enum.Font.GothamMedium
+		tl.TextColor3 = GOLD_TXT
+		tl.Parent = gui
+	end
+	sign(f, "LightDeskSign", -20, y0 + 0.8, z2 + 0.25, 10.5, 1.2, 0, 1, "CABINA DE LUCES", SILVER, false, "chrome")
+	-- placa de operador (el cliente escribe aqui el estado: LIBRE / nombre del operador)
+	local plate = P(f, "ControlStatusPlate", CFrame.lookAt(Vector3.new(-20, y0 + 1.95, z2 + 0.15), Vector3.new(-20, y0 + 1.95, z2 + 1.15)), Vector3.new(8, 0.9, 0.2), C.black, M.SmoothPlastic, { CanCollide = false, Reflectance = 0.1 })
+	local sg = Instance.new("SurfaceGui")
+	sg.Face = Enum.NormalId.Front
+	sg.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	sg.PixelsPerStud = 40
+	sg.LightInfluence = 0
+	sg.Parent = plate
+	local st = Instance.new("TextLabel")
+	st.Name = "ControlStatusLabel"
+	st.BackgroundTransparency = 1
+	st.Size = UDim2.fromScale(1, 1)
+	st.Text = "OPERADOR: LIBRE"
+	st.TextScaled = true
+	st.Font = Enum.Font.GothamMedium
+	st.TextColor3 = GOLD_TXT
+	st.Parent = sg
+	lamp(f, "LightDeskFill", -20, y0 + 6, -66, C.warmWhite, 22, 0.8)
+end
+
 local function buildFloor1()
 	local f = folders.Floor1
 	local D, St = LAYOUT.dance, LAYOUT.stage
 	B(f, "Floor1_Slab", -80, -3, -80, 80, 0, 80, C.floor, M.Marble, { Reflectance = 0.24 })
-	B(f, "Carpet", -6, 0, 10, 6, 0.1, 78, C.ivory, M.Fabric, DECOR)
+	B(f, "Carpet", -6, 0, 10, 6, 0.1, 78, RED, M.Fabric, DECOR)
 
 	-- PISTA LED: base oscura reflectante, juntas de 0.5, paneles de neon de brillo moderado en
 	-- damero (la mitad mas tenue), cristal ahumado encima y bisel metalico con hilo de neon
-	local n = CONFIG.TileCount
+	local n = TILE_COUNT
 	local cell = (D.x2 - D.x1) / n
 	B(f, "DanceBase", D.x1, 0, D.z1, D.x2, 0.1, D.z2, Color3.fromRGB(10, 8, 20), M.Marble, { Reflectance = 0.3 })
 	for ix = 0, n - 1 do
@@ -1810,8 +2081,9 @@ local function buildFloor1()
 	B(f, "StageStepA", -8, 0, -62, 8, 1.1, -60.5, C.black, M.SmoothPlastic)
 	glow(f, "StageTrim", St.x1, 0.8, -64.15, St.x2, 1.3, -64, C.warmWhite, { cycle = true, light = 22 })
 	djDeck(f, "DJ1", 0, St.top, -72, C.cyan)
-	sign(f, "DJFront", 0, St.top + 1.75, -70.75, 11, 2.4, 0, 1, "MAYA", SILVER, false, "chrome")
-	local _, screen = sign(f, "DJScreen", 0, 14, -77.75, 44, 14, 0, 1, "MAYA", C.cyan, false)
+	buildControlBooth(f)
+	sign(f, "DJFront", 0, St.top + 1.75, -70.75, 11, 2.4, 0, 1, "ALFOMBRA ROJA", SILVER, false, "chrome")
+	local _, screen = sign(f, "DJScreen", 0, 14, -77.75, 44, 14, 0, 1, "LA ALFOMBRA ROJA", GOLD_TXT, false, "screen")
 	table.insert(fx.screens, screen)
 	glow(f, "ScreenFrameT", -22.4, 21, -77.7, 22.4, 21.5, -77.2, C.warmWhite, { cycle = true })
 	glow(f, "ScreenFrameB", -22.4, 6.5, -77.7, 22.4, 7, -77.2, C.warmWhite, { cycle = true })
@@ -1848,22 +2120,25 @@ local function buildFloor1()
 	-- cuadradas de espejo (Metal + Reflectance 1) en anillos de latitud, alternando dos tonos de plata
 	-- para que cada faceta se lea; casquete y varilla cromados y dos focos que la iluminan.
 	local mc = Vector3.new(0, 36, -24)
-	local BALL_R = 3.9
 	B(f, "MirrorRod", mc.X - 0.12, mc.Y + 3, mc.Z - 0.12, mc.X + 0.12, FLOOR_Y[3] - 2, mc.Z + 0.12, C.chrome, M.Metal, { CanCollide = false, CastShadow = false, Reflectance = 0.6 })
 	cyl(f, "MirrorMotor", mc.X, mc.Y + 4.6, mc.Z, 1.2, 1.6, C.dark, M.Metal, { CanCollide = false, CastShadow = false, Reflectance = 0.4 })
 	local core = ball(f, "MirrorCore", mc.X, mc.Y, mc.Z, 7.0, Color3.fromRGB(18, 18, 22), M.SmoothPlastic, { CanCollide = false, Reflectance = 0.1 })
-	addLight(core, Color3.fromRGB(255, 244, 230), 40, false, 2)
-	local SILVERS = { Color3.fromRGB(246, 248, 252), Color3.fromRGB(196, 204, 220) }
+	addLight(core, Color3.fromRGB(255, 244, 230), 40, false, 1)
+	local SILVERS = { Color3.fromRGB(228, 231, 240), Color3.fromRGB(176, 184, 202) }
+	local RC = 3.56 -- radio del centro de cada faceta: su cara interior toca el nucleo (r = 3.5), nunca dentro
 	local fi = 0
-	for ri, latDeg in { -75, -60, -45, -30, -15, 0, 15, 30, 45, 60, 75 } do
+	local step = PROFILE.mirrorStep
+	local rings = math.floor(72 / step)
+	for ri = 0, 2 * rings do
+		local latDeg = -rings * step + ri * step
 		local lat = math.rad(latDeg)
-		local ringN = math.max(5, math.floor(2 * math.pi * BALL_R * math.cos(lat) / 1.05 + 0.5))
+		local ringN = math.max(5, math.floor(2 * math.pi * (RC + 0.06) * math.cos(lat) / 1.05 + 0.5))
 		for k = 0, ringN - 1 do
 			fi += 1
 			local lon = k / ringN * math.pi * 2 + (ri % 2 == 0 and 0 or math.pi / ringN)
 			local dir = Vector3.new(math.cos(lat) * math.cos(lon), math.sin(lat), math.cos(lat) * math.sin(lon))
-			local local_cf = CFrame.lookAt(dir * (BALL_R - 0.5), dir * BALL_R)
-			local facet = P(f, "MirrorFacet", CFrame.new(mc) * local_cf, Vector3.new(0.92, 0.92, 0.12), SILVERS[fi % 2 + 1], M.Metal, { Reflectance = 1, CanCollide = false, CastShadow = false })
+			local local_cf = CFrame.lookAt(dir * RC, dir * (RC + 1))
+			local facet = P(f, "MirrorFacet", CFrame.new(mc) * local_cf, Vector3.new(0.92, 0.92, 0.12), SILVERS[fi % 2 + 1], M.Metal, { Reflectance = 0.8, CanCollide = false, CastShadow = false })
 			table.insert(fx.mirror, { part = facet, center = mc, offset = local_cf })
 		end
 	end
@@ -1876,7 +2151,7 @@ local function buildFloor1()
 		l.Face = Enum.NormalId.Front
 		l.Angle = 40
 		l.Range = 30
-		l.Brightness = 3 * LOOK.LightIntensity
+		l.Brightness = 1.8 * LOOK.LightIntensity
 		l.Color = Color3.fromRGB(255, 240, 220)
 		l.Parent = can
 		lightCount += 1
@@ -1934,23 +2209,24 @@ local function buildFloor1()
 		end
 	end
 
-	-- lobby: guardarropa y boleteria contra la pared sur, palmeras y monogramas
-	barCounter(f, "CoatCheck", -62, 72, -34, 75, 0, "N", C.cyan)
+	-- lobby: zona LA ALFOMBRA ROJA (sustituye al guardarropa), boleteria, palmeras y logos
+	buildRedCarpet(f)
 	barCounter(f, "TicketDesk", 34, 72, 62, 75, 0, "N", C.cyan)
-	sign(f, "CoatSign", -48, 9, 77.75, 16, 3, 0, -1, "GUARDARROPA", SILVER, false, "chrome")
 	sign(f, "TicketSign", 48, 9, 77.75, 16, 3, 0, -1, "BOLETERIA", SILVER, false, "chrome")
 	for i, x in { -16, 16 } do
 		palm(f, "LobbyPalm" .. i, x, 74)
 	end
-	wallMonogram(f, "LobbyMonoW", -78, 5, 58, 1, 0, 0.42)
 	wallMonogram(f, "LobbyMonoE", 78, 6, 72, -1, 0, 0.36)
-	candleCluster(f, "CoatCandle", -48, 4.5, 73.5, false)
 	pumpkin(f, "TicketPumpkin", 48, 4.5, 73.5, math.pi, 0.6, { mini = true })
 
 	-- escalera P1 -> P2 (este): 10 de ancho, sube al norte. Descanso de entrada 10x14 al sur.
 	local S1 = LAYOUT.s1
 	stairs(folders.Stairs, "Stairs1", S1.x1, S1.x2, S1.baseY, S1.zStart, S1.dir)
 	stairRail(folders.Stairs, "Stairs1Rail", S1.x1 + 0.15, S1.baseY, S1.zStart, S1.dir)
+	-- luces de seguridad en escaleras y descansos (nunca se apagan del todo desde la cabina)
+	for _, p in { { 73, 7, 70 }, { 73, 16, 48 }, { 73, 31, 11 } } do
+		lamp(folders.Stairs, "StairLamp", p[1], p[2], p[3], C.warmWhite, 22, 0.8)
+	end
 	landing(f, "Landing1In", S1.landIn[1], S1.landIn[2], S1.landIn[3], S1.landIn[4], 0)
 
 	-- techo del hall: neon rosa, focos empotrados, tiras de luz y listones acusticos
@@ -2014,6 +2290,9 @@ local function buildFloor2()
 	rail(f, "S1Rail_W", S1.hole[1], S1.hole[2], S1.hole[1], S1.hole[4], y, C.magenta)
 	rail(f, "S1Rail_S", S1.hole[1], S1.hole[4], S1.hole[3], S1.hole[4], y, C.magenta)
 	landing(f, "Landing1Out", S1.landOut[1], S1.landOut[2], S1.landOut[3], S1.landOut[4], y)
+	for _, p in { { -73, 31, -70 }, { -73, 40, -48 }, { -73, 55, -11 } } do
+		lamp(folders.Stairs, "StairLamp", p[1], p[2], p[3], C.warmWhite, 22, 0.8)
+	end
 	landing(f, "Landing2In", S2.landIn[1], S2.landIn[2], S2.landIn[3], S2.landIn[4], y)
 
 	-- barra VIP norte (a 9 studs del balcon: pasillo principal libre)
@@ -2156,9 +2435,9 @@ local function buildFloor3()
 	glow(f, "RoofStageTrim", -30, y + 0.6, -62.15, 30, y + 1, -62, C.cyan, { cycle = true, light = 18 })
 	B(f, "RoofBackdrop", -30, y, -78.6, 30, y + 24, -78, NAVY, M.Metal)
 	wallMonogram(f, "RoofMono", 0, y + 6.2, -78, 0, 1, 0.42)
-	sign(f, "RoofSign", 0, y + 4.1, -77.75, 30, 3.4, 0, 1, "MAYA CLUB", SILVER, false, "chrome")
+	sign(f, "RoofSign", 0, y + 4.1, -77.75, 30, 3.4, 0, 1, "LA ALFOMBRA ROJA", SILVER, false, "chrome")
 	djDeck(f, "DJ3", 0, y + 2.2, -70, C.magenta)
-	sign(f, "RoofDJFront", 0, y + 2.2 + 1.75, -68.75, 11, 2.4, 0, 1, "MAYA", SILVER, false, "chrome")
+	sign(f, "RoofDJFront", 0, y + 2.2 + 1.75, -68.75, 11, 2.4, 0, 1, "ALFOMBRA ROJA", SILVER, false, "chrome")
 	haze(f, "RoofHazeL", -12, y + 2.4, -63.5, 12)
 	haze(f, "RoofHazeR", 12, y + 2.4, -63.5, 12)
 	speaker(f, "RoofSpeaker_L", -38, y, -70, 9, true)
@@ -2250,15 +2529,15 @@ local function buildSpawn()
 	s.Parent = club
 end
 
--- interfaz: placa MAYA CLUB arriba al centro (logo opcional) que se clona a cada jugador
+-- interfaz: placa LA ALFOMBRA ROJA arriba al centro (logo opcional) que se clona a cada jugador
 local function buildUI()
 	local StarterGui = game:GetService("StarterGui")
-	local old = StarterGui:FindFirstChild("MayaClubUI")
+	local old = StarterGui:FindFirstChild("LaAlfombraRojaUI")
 	if old then
 		old:Destroy()
 	end
 	local gui = Instance.new("ScreenGui")
-	gui.Name = "MayaClubUI"
+	gui.Name = "LaAlfombraRojaUI"
 	gui.ResetOnSpawn = false
 	gui.Parent = StarterGui
 
@@ -2266,7 +2545,7 @@ local function buildUI()
 	frame.Name = "Badge"
 	frame.AnchorPoint = Vector2.new(0.5, 0)
 	frame.Position = UDim2.new(0.5, 0, 0, 10)
-	frame.Size = UDim2.fromOffset(260, 58)
+	frame.Size = UDim2.fromOffset(300, 58)
 	frame.BackgroundColor3 = C.navy
 	frame.BackgroundTransparency = 0.25
 	frame.BorderSizePixel = 0
@@ -2275,7 +2554,7 @@ local function buildUI()
 	corner.CornerRadius = UDim.new(0, 12)
 	corner.Parent = frame
 	local stroke = Instance.new("UIStroke")
-	stroke.Color = C.violet
+	stroke.Color = GOLD_TXT
 	stroke.Thickness = 1.5
 	stroke.Transparency = 0.2
 	stroke.Parent = frame
@@ -2296,31 +2575,28 @@ local function buildUI()
 	title.BackgroundTransparency = 1
 	title.Position = UDim2.fromOffset(hasLogo and 60 or 12, 4)
 	title.Size = UDim2.new(1, hasLogo and -68 or -24, 0, 32)
-	title.Font = Enum.Font.GothamBlack
-	title.Text = "MAYA CLUB"
+	title.Font = Enum.Font.Bodoni
+	title.RichText = true
+	title.Text = brandRich("LA ALFOMBRA ROJA")
 	title.TextScaled = true
-	title.TextColor3 = Color3.fromRGB(235, 238, 250)
-	title.TextStrokeColor3 = C.violet
-	title.TextStrokeTransparency = 0.35
+	title.TextColor3 = GOLD_TXT
+	title.TextStrokeColor3 = C.black
+	title.TextStrokeTransparency = 0.5
 	title.Parent = frame
-	local grad = Instance.new("UIGradient")
-	grad.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(150, 190, 255))
-	grad.Rotation = 90
-	grad.Parent = title
 	local sub = Instance.new("TextLabel")
 	sub.Name = "Subtitle"
 	sub.BackgroundTransparency = 1
 	sub.Position = UDim2.fromOffset(hasLogo and 60 or 12, 36)
 	sub.Size = UDim2.new(1, hasLogo and -68 or -24, 0, 16)
 	sub.Font = Enum.Font.GothamMedium
-	sub.Text = "3 pisos - VIP - Rooftop"
+	sub.Text = "Zona de fotos - 3 pisos - VIP - Rooftop"
 	sub.TextScaled = true
-	sub.TextColor3 = C.cyan
+	sub.TextColor3 = C.silver
 	sub.Parent = frame
 end
 
 local function buildLighting()
-	for _, n in { "MayaBloom", "MayaColor", "MayaAtmosphere", "MayaDOF" } do
+	for _, n in { "AlfombraBloom", "AlfombraColor", "AlfombraAtmosphere", "AlfombraDOF" } do
 		local o = Lighting:FindFirstChild(n)
 		if o then
 			o:Destroy()
@@ -2344,22 +2620,24 @@ local function buildLighting()
 
 	-- bloom moderado: el neon brilla pero no tapa el detalle
 	local bloom = Instance.new("BloomEffect")
-	bloom.Name = "MayaBloom"
-	bloom.Intensity = LOOK.Bloom.Intensity
+	bloom.Name = "AlfombraBloom"
+	bloom.Intensity = LOOK.Bloom.Intensity * PROFILE.bloomScale
 	bloom.Size = LOOK.Bloom.Size
 	bloom.Threshold = LOOK.Bloom.Threshold
 	bloom.Parent = Lighting
 
-	local dof = Instance.new("DepthOfFieldEffect")
-	dof.Name = "MayaDOF"
-	dof.FarIntensity = 0.12
-	dof.NearIntensity = 0
-	dof.FocusDistance = 45
-	dof.InFocusRadius = 70
-	dof.Parent = Lighting
+	if PROFILE.dof then
+		local dof = Instance.new("DepthOfFieldEffect")
+		dof.Name = "AlfombraDOF"
+		dof.FarIntensity = 0.1
+		dof.NearIntensity = 0
+		dof.FocusDistance = 45
+		dof.InFocusRadius = 70
+		dof.Parent = Lighting
+	end
 
 	local cc = Instance.new("ColorCorrectionEffect")
-	cc.Name = "MayaColor"
+	cc.Name = "AlfombraColor"
 	cc.Contrast = 0.1
 	cc.Saturation = -0.08
 	cc.TintColor = Color3.fromRGB(255, 243, 230)
@@ -2369,7 +2647,7 @@ local function buildLighting()
 	if not atm then
 		atm = Instance.new("Atmosphere")
 	end
-	atm.Name = "MayaAtmosphere"
+	atm.Name = "AlfombraAtmosphere"
 	atm.Density = 0.16
 	atm.Offset = 0.2
 	atm.Color = Color3.fromRGB(150, 128, 120)
@@ -2401,7 +2679,7 @@ local function updateMirror(t)
 end
 
 local TILE_A, TILE_B = Color3.fromRGB(255, 214, 160), Color3.fromRGB(205, 224, 245) -- champan -> hielo
-local SCREEN_TEXTS = { "MAYA", "CLUB", "MAYA CLUB", "LET'S GO", "MAYA" }
+local SCREEN_TEXTS = { "LA ALFOMBRA ROJA", "ALFOMBRA", "ROJA", "LET'S GO", "LA ALFOMBRA ROJA" }
 
 local GLOW_STEPS = 16
 local glowColors = {}
@@ -2417,11 +2695,11 @@ end
 
 local function startAnimations()
 	-- relanzar el script no apila conexiones
-	if _G.MayaClubConnection then
+	if _G.LaAlfombraRojaConnection then
 		pcall(function()
-			_G.MayaClubConnection:Disconnect()
+			_G.LaAlfombraRojaConnection:Disconnect()
 		end)
-		_G.MayaClubConnection = nil
+		_G.LaAlfombraRojaConnection = nil
 	end
 	-- fuera de Play (p. ej. barra de comandos) el club queda estatico
 	if not RunService:IsRunning() then
@@ -2431,7 +2709,7 @@ local function startAnimations()
 	local t = 0
 	local accFast, accTiles, accGlows, accMirror = 0, 0, 0, 0
 	local lastScreen = 0
-	_G.MayaClubConnection = RunService.Heartbeat:Connect(function(dt)
+	_G.LaAlfombraRojaConnection = RunService.Heartbeat:Connect(function(dt)
 		t += dt
 		accFast += dt
 		accTiles += dt
@@ -2514,7 +2792,7 @@ local function startAnimations()
 			if idx ~= lastScreen then
 				lastScreen = idx
 				for _, l in fx.screens do
-					l.Text = SCREEN_TEXTS[idx]
+					l.Text = brandRich(SCREEN_TEXTS[idx])
 				end
 			end
 			for _, l in fx.screens do
@@ -2527,6 +2805,466 @@ end
 ------------------------------------------------------------------------
 -- Ejecucion
 ------------------------------------------------------------------------
+-- perfil Equilibrado: quita las luces decorativas menores (velas, calabazas, llamas, calderos, tiras
+-- de barra, leds de estanteria y la mitad de los downlights). Las luces de relleno, escaleras y
+-- pasillos nunca se tocan.
+local function pruneMinorLights()
+	if not PROFILE.pruneMinor then
+		return
+	end
+	local patterns = { "Candle", "Pumpkin", "Flame", "Cauldron", "_Strip$", "ShelfLed", "^Downlight$" }
+	for _, d in club:GetDescendants() do
+		if d:IsA("PointLight") or d:IsA("SpotLight") then
+			local n = d.Parent.Name
+			for _, pat in patterns do
+				if string.find(n, pat) then
+					d:Destroy()
+					lightCount -= 1
+					break
+				end
+			end
+		end
+	end
+	local keep = {}
+	for _, fl in fx.flames do
+		if fl.light.Parent ~= nil then
+			table.insert(keep, fl)
+		end
+	end
+	fx.flames = keep
+	for _, g in fx.glows do
+		if g.light and g.light.Parent == nil then
+			g.light = nil
+		end
+	end
+end
+
+------------------------------------------------------------------------
+-- CONTROL DE LUCES: estado replicado (atributos), etiquetas para el cliente, operador unico y
+-- peticiones validadas. Las animaciones decorativas las ejecuta el CLIENTE (script LocalScript);
+-- el servidor solo guarda el estado y atiende unas pocas peticiones al minuto.
+------------------------------------------------------------------------
+local Control = {}
+Control.DEFAULT = {
+	Preset = "Elegante",
+	Master = 1, ZPista = 1, ZVip = 1, ZRooftop = 1, ZAlfombra = 1,
+	OnPista = true, OnVip = true, OnRooftop = true, OnAlfombra = true,
+	Lasers = false, Shafts = true, SpotMove = false, Pulse = true,
+	Speed = 0.6, MirrorSpin = true, MirrorSpeed = 0.5,
+	Strobe = false, -- opcional y APAGADO de inicio (luces intermitentes)
+	Palette = "Champan",
+}
+Control.PRESETS = {
+	Elegante = { Master = 1, Lasers = false, Shafts = true, SpotMove = false, Pulse = true, Speed = 0.6, MirrorSpin = true, MirrorSpeed = 0.5, Strobe = false, Palette = "Champan" },
+	Fiesta = { Master = 1.1, Lasers = true, Shafts = true, SpotMove = true, Pulse = true, Speed = 1.1, MirrorSpin = true, MirrorSpeed = 1, Strobe = false, Palette = "Rosa" },
+	Discoteca = { Master = 1.2, Lasers = true, Shafts = true, SpotMove = true, Pulse = true, Speed = 1.6, MirrorSpin = true, MirrorSpeed = 1.5, Strobe = false, Palette = "Multicolor" },
+	SinEfectos = { Lasers = false, Shafts = false, SpotMove = false, Pulse = false, MirrorSpin = false, Strobe = false, Speed = 0.6, Palette = "Champan" },
+}
+Control.NUM = {
+	Master = { 0, 1.5 }, ZPista = { 0, 1.5 }, ZVip = { 0, 1.5 }, ZRooftop = { 0, 1.5 }, ZAlfombra = { 0, 1.5 },
+	Speed = { 0.25, 2 }, MirrorSpeed = { 0, 2 },
+}
+Control.BOOL = { "OnPista", "OnVip", "OnRooftop", "OnAlfombra", "Lasers", "Shafts", "SpotMove", "Pulse", "MirrorSpin", "Strobe" }
+Control.PALETTES = { Champan = true, Hielo = true, Rosa = true, Violeta = true, Rojo = true, Multicolor = true }
+Control.SAFE = { "^Fill", "HallStrip", "^Door_", "Stair", "Landing", "CarpetFill", "LightDeskFill" }
+Control.op = { player = nil, last = 0 } -- operador actual
+Control.buckets = {}
+Control.clock = 0
+Control.warnAt = 0
+
+-- zona de una luz segun su posicion: Pista (planta baja y atrio), Vip, Rooftop, Alfombra o Ext
+function Control.zoneOf(pos)
+	local A = LAYOUT.atrium
+	if math.abs(pos.X) > 80 or pos.Z > 80 or pos.Z < -80 then
+		return "Ext"
+	end
+	if pos.Y >= 46 then
+		return "Rooftop"
+	end
+	if pos.Y >= 22 and not (pos.X >= A.x1 and pos.X <= A.x2 and pos.Z >= A.z1 and pos.Z <= A.z2) then
+		return "Vip"
+	end
+	if pos.X < -8 and pos.Z > 46 then
+		return "Alfombra"
+	end
+	return "Pista"
+end
+
+local function findDesc(name)
+	for _, d in club:GetDescendants() do
+		if d.Name == name then
+			return d
+		end
+	end
+	return nil
+end
+
+-- etiqueta y atributos de todo lo que el cliente anima o regula
+function Control.tag()
+	local CS = game:GetService("CollectionService")
+	local function add(inst, tag, attrs)
+		-- primero los atributos y despues la etiqueta: el cliente los lee al recibir la etiqueta
+		if attrs then
+			for k, v in attrs do
+				inst:SetAttribute(k, v)
+			end
+		end
+		CS:AddTag(inst, tag)
+	end
+	local flameSet = {}
+	for _, fl in fx.flames do
+		flameSet[fl.light] = true
+		add(fl.light, "AR_Flame", { phase = fl.phase, base = fl.base })
+	end
+	for _, t in fx.tiles do
+		add(t.part, "AR_Tile", { ix = t.ix, iz = t.iz, n = t.n, dim = t.dim })
+	end
+	for _, g in fx.glows do
+		add(g.part, "AR_Glow", { phase = g.phase, z = Control.zoneOf(g.part.CFrame.Position) })
+	end
+	for _, l in fx.lamps do
+		add(l.light.Parent, "AR_Lamp", { phase = l.phase, z = Control.zoneOf(l.light.Parent.CFrame.Position) })
+	end
+	for _, st in fx.strobes do
+		CS:AddTag(st.part, "AR_Strobe")
+	end
+	for _, b in fx.beams do
+		add(b.tip, "AR_Laser", { o = b.origin, yaw = b.yaw, swing = b.swing, speed = b.speed, phase = b.phase })
+	end
+	for _, m in fx.mirror do
+		CS:AddTag(m.part, "AR_Mirror")
+	end
+	if fx.mirror[1] then
+		club:SetAttribute("MirrorCenter", fx.mirror[1].center)
+	end
+	for _, sg in fx.signs do
+		add(sg.label, "AR_Sign", { phase = sg.phase })
+	end
+	for _, l in fx.screens do
+		CS:AddTag(l, "AR_Screen")
+	end
+	local spots = 0
+	for _, d in club:GetDescendants() do
+		if d:IsA("Beam") and d.Name == "LightShaft" then
+			add(d, "AR_Shaft", { z = Control.zoneOf(d.Parent.CFrame.Position) })
+		elseif d:IsA("BasePart") and (string.match(d.Name, "^StageSpot%d+$") or string.match(d.Name, "^RoofSpot%d+$")) then
+			spots += 1
+			add(d, "AR_Spot", { phase = spots * 0.9 })
+		elseif (d:IsA("PointLight") or d:IsA("SpotLight")) and not flameSet[d] then
+			local pn = d.Parent.Name
+			if not (string.match(pn, "^Strobe%d+$") or string.match(pn, "^RoofStrobe%d+$")) then
+				local safe = false
+				for _, pat in Control.SAFE do
+					if string.find(pn, pat) then
+						safe = true
+						break
+					end
+				end
+				add(d, "AR_Light", { z = Control.zoneOf(d.Parent.CFrame.Position), safe = safe, b = d.Brightness })
+			end
+		elseif d.Name == "ControlStatusLabel" then
+			CS:AddTag(d, "AR_Status")
+		elseif d.Name == "LightDesk_Top" then
+			CS:AddTag(d, "AR_Desk")
+		end
+	end
+end
+
+function Control.canOperate(player)
+	local c = CONFIG.Control
+	if c.Access == "Todos" then
+		return true
+	end
+	if c.Access == "Dueno" then
+		local okS, studio = pcall(function()
+			return RunService:IsStudio()
+		end)
+		if okS and studio then
+			return true
+		end
+		local ok, cid = pcall(function()
+			return game.CreatorId
+		end)
+		return ok and cid ~= nil and cid ~= 0 and player.UserId == cid
+	end
+	for _, id in c.UserIds do
+		if id == player.UserId then
+			return true
+		end
+	end
+	if c.GroupId > 0 then
+		local ok, rank = pcall(function()
+			return player:GetRankInGroup(c.GroupId)
+		end)
+		if ok and type(rank) == "number" and rank >= c.MinRank then
+			return true
+		end
+	end
+	return false
+end
+
+function Control.near(player, range)
+	local ch = player.Character
+	local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+	if not hrp or not Control.desk then
+		return false
+	end
+	return (hrp.Position - Control.desk.CFrame.Position).Magnitude <= range
+end
+
+function Control.notice(player, kind, text)
+	if Control.remoteNotice then
+		Control.remoteNotice:FireClient(player, kind, text)
+	end
+end
+
+function Control.setOperator(player)
+	Control.op.player = player
+	Control.op.last = Control.clock
+	local f = club:FindFirstChild("Control")
+	f:SetAttribute("Operator", player and player.UserId or 0)
+	f:SetAttribute("OperatorName", player and player.Name or "")
+end
+
+function Control.release(player, reason)
+	if Control.op.player ~= nil and Control.op.player == player then
+		Control.setOperator(nil)
+		Control.notice(player, "Closed", reason or "Control liberado.")
+	end
+end
+
+-- cubo de fichas por jugador: MaxRequestsPerSecond por segundo (rafaga = el mismo valor)
+function Control.allow(player)
+	local cap = CONFIG.Control.MaxRequestsPerSecond
+	local now = os.clock()
+	local b = Control.buckets[player]
+	if not b then
+		b = { tokens = cap, t = now }
+		Control.buckets[player] = b
+	end
+	b.tokens = math.min(cap, b.tokens + (now - b.t) * cap)
+	b.t = now
+	if b.tokens < 1 then
+		return false
+	end
+	b.tokens -= 1
+	return true
+end
+
+function Control.set(attr, v)
+	club:FindFirstChild("Control"):SetAttribute(attr, v)
+end
+
+-- aplica una accion ya autenticada; devuelve true si el valor era valido
+function Control.apply(action, value)
+	if action == "Restore" then
+		for k, v in Control.DEFAULT do
+			Control.set(k, v)
+		end
+		return true
+	elseif action == "Preset" then
+		local p = type(value) == "string" and Control.PRESETS[value]
+		if not p then
+			return false
+		end
+		for k, v in p do
+			Control.set(k, v)
+		end
+		Control.set("Preset", value)
+		return true
+	end
+	local rg = Control.NUM[action]
+	if rg then
+		if type(value) ~= "number" or value ~= value then
+			return false
+		end
+		local v = math.clamp(math.floor(value * 20 + 0.5) / 20, rg[1], rg[2])
+		Control.set(action, v)
+		Control.set("Preset", "Personalizado")
+		return true
+	end
+	if table.find(Control.BOOL, action) then
+		if type(value) ~= "boolean" then
+			return false
+		end
+		Control.set(action, value)
+		Control.set("Preset", "Personalizado")
+		return true
+	end
+	if action == "Palette" then
+		if type(value) ~= "string" or not Control.PALETTES[value] then
+			return false
+		end
+		Control.set(action, value)
+		Control.set("Preset", "Personalizado")
+		return true
+	end
+	return false
+end
+
+function Control.handle(player, action, value)
+	if not Control.allow(player) then
+		if Control.clock - Control.warnAt > 3 then
+			Control.warnAt = Control.clock
+			Control.notice(player, "Info", "Demasiadas acciones seguidas: ve un poco más despacio.")
+		end
+		return false
+	end
+	if type(action) ~= "string" then
+		return false
+	end
+	if Control.op.player ~= player then
+		Control.notice(player, "Denied", "No eres el operador de las luces.")
+		return false
+	end
+	if action == "Release" then
+		Control.release(player, "Has soltado el control de las luces.")
+		return true
+	end
+	if not Control.near(player, CONFIG.Control.Range * 3) then
+		Control.release(player, "Te alejaste de la cabina: control liberado.")
+		return false
+	end
+	Control.op.last = Control.clock
+	return Control.apply(action, value)
+end
+
+function Control.trigger(player)
+	local c = CONFIG.Control
+	if not Control.canOperate(player) then
+		Control.notice(player, "Denied", "No tienes permiso para operar las luces.")
+		return
+	end
+	if not Control.near(player, c.Range * 1.5) then
+		Control.notice(player, "Denied", "Acércate a la cabina de luces.")
+		return
+	end
+	local cur = Control.op.player
+	if cur ~= nil and cur ~= player then
+		Control.notice(player, "Busy", "La cabina está en uso por " .. cur.Name .. ".")
+		return
+	end
+	Control.setOperator(player)
+	Control.notice(player, "Open", "Eres el operador de las luces.")
+end
+
+-- copia el LocalScript de efectos (hijo "ClientEffects" de este Script, o ya colocado en
+-- StarterPlayerScripts por el .rbxlx) para que cada cliente anime y regule las luces localmente.
+function Control.deployClient()
+	local okR, running = pcall(function()
+		return RunService:IsRunning()
+	end)
+	if not okR or not running then
+		return false
+	end
+	local StarterPlayer = game:GetService("StarterPlayer")
+	local sps = StarterPlayer:FindFirstChild("StarterPlayerScripts")
+	if not sps then
+		return false
+	end
+	if sps:FindFirstChild("LaAlfombraRojaFX") then
+		return true
+	end
+	local src = script and script:FindFirstChild("ClientEffects")
+	if not src then
+		return false
+	end
+	local copy = src:Clone()
+	copy.Name = "LaAlfombraRojaFX"
+	copy.Parent = sps
+	-- jugadores que ya estaban conectados reciben una copia propia dentro de su PlayerGui
+	for _, pl in game:GetService("Players"):GetPlayers() do
+		local pg = pl:FindFirstChildOfClass("PlayerGui")
+		if pg then
+			local holder = Instance.new("ScreenGui")
+			holder.Name = "LaAlfombraRojaFXHolder"
+			holder.ResetOnSpawn = false
+			local c2 = src:Clone()
+			c2.Name = "LaAlfombraRojaFX"
+			c2.Parent = holder
+			holder.Parent = pg
+		end
+	end
+	return true
+end
+
+function Control.setup()
+	local old = club:FindFirstChild("Control")
+	if old then
+		old:Destroy()
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "Control"
+	folder.Parent = club
+	for k, v in Control.DEFAULT do
+		folder:SetAttribute(k, v)
+	end
+	folder:SetAttribute("Operator", 0)
+	folder:SetAttribute("OperatorName", "")
+	club:SetAttribute("Quality", PROFILE_NAME)
+	club:SetAttribute("ClientFX", true)
+	Control.tag()
+	Control.desk = findDesc("LightDesk_Top")
+	if not CONFIG.Control.Enabled or not Control.desk then
+		return
+	end
+
+	local RS = game:GetService("ReplicatedStorage")
+	local oldR = RS:FindFirstChild("AlfombraControl")
+	if oldR then
+		oldR:Destroy()
+	end
+	local rf = Instance.new("Folder")
+	rf.Name = "AlfombraControl"
+	local req = Instance.new("RemoteEvent")
+	req.Name = "Request"
+	req.Parent = rf
+	local note = Instance.new("RemoteEvent")
+	note.Name = "Notice"
+	note.Parent = rf
+	rf.Parent = RS
+	Control.remoteRequest, Control.remoteNotice = req, note
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "ControlPrompt"
+	prompt.ActionText = "Abrir panel de luces"
+	prompt.ObjectText = "Cabina de control de luces"
+	prompt.HoldDuration = 0.3
+	prompt.MaxActivationDistance = CONFIG.Control.Range
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = Control.desk
+	Control.prompt = prompt
+	prompt.Triggered:Connect(function(player)
+		Control.trigger(player)
+	end)
+	req.OnServerEvent:Connect(function(player, action, value)
+		Control.handle(player, action, value)
+	end)
+	local Players = game:GetService("Players")
+	Players.PlayerRemoving:Connect(function(player)
+		Control.buckets[player] = nil
+		Control.release(player, "")
+	end)
+	-- vigilante: libera el control por inactividad o si el operador se aleja
+	local acc = 0
+	RunService.Heartbeat:Connect(function(dt)
+		Control.clock += dt
+		acc += dt
+		if acc < 2 then
+			return
+		end
+		acc = 0
+		local p = Control.op.player
+		if p then
+			if Control.clock - Control.op.last > CONFIG.Control.IdleTimeout then
+				Control.release(p, "Control liberado por inactividad.")
+			elseif not Control.near(p, CONFIG.Control.Range * 3) then
+				Control.release(p, "Te alejaste de la cabina: control liberado.")
+			end
+		end
+	end)
+end
+
 buildWorld()
 buildShell()
 buildFloor1()
@@ -2535,10 +3273,21 @@ buildFloor3()
 buildSpawn()
 buildLighting()
 buildUI()
+pruneMinorLights()
 updateMirror(0)
 updateBeams(0) -- pose inicial correcta antes de aparecer
+-- con el LocalScript de efectos las animaciones decorativas las hace cada cliente (nada se replica
+-- desde el servidor); sin el, se usa la animacion de servidor de respaldo (sin cabina de control).
+-- El estado y las etiquetas se preparan ANTES de publicar el club para que lleguen juntos.
+local clientFX = Control.deployClient()
+if clientFX then
+	Control.setup()
+end
 club.Parent = Workspace
-startAnimations()
+if not clientFX then
+	startAnimations()
+	print("[LaAlfombraRoja] Sin LocalScript de efectos: animacion de servidor de respaldo y sin cabina de control (ver README).")
+end
 
 local partCount = 0
 for _, d in club:GetDescendants() do
@@ -2547,11 +3296,6 @@ for _, d in club:GetDescendants() do
 	end
 end
 if CONFIG.MusicId == "" then
-	print("[MayaClub] Sin musica: CONFIG.MusicId esta vacio (opcional). Pon un audio que puedas usar.")
+	print("[LaAlfombraRoja] Sin musica: CONFIG.MusicId esta vacio (opcional). Pon un audio que puedas usar.")
 end
-print(string.format("[MayaClub] listo: %d partes, %d luces, 3 pisos.", partCount, lightCount))
-]]></ProtectedString>
-			</Properties>
-		</Item>
-	</Item>
-</roblox>
+print(string.format("[LaAlfombraRoja] listo: %d partes, %d luces, 3 pisos.", partCount, lightCount))

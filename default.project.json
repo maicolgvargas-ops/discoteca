@@ -1,11 +1,20 @@
 {
-  "name": "MayaClub",
+  "name": "LaAlfombraRoja",
   "tree": {
     "$className": "DataModel",
     "ServerScriptService": {
       "$className": "ServerScriptService",
-      "MayaClub": {
-        "$path": "src/ServerScriptService/MayaClub.server.luau"
+      "LaAlfombraRoja": {
+        "$path": "src/ServerScriptService/LaAlfombraRoja.server.luau"
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "LaAlfombraRojaFX": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/LaAlfombraRojaFX.client.luau"
+        }
       }
     }
   }

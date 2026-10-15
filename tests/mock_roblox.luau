@@ -27,6 +27,12 @@ Vector3.__mul = function(a, b)
 	end
 	return Vector3.new(a.X * b.X, a.Y * b.Y, a.Z * b.Z)
 end
+Vector3.__div = function(a, b)
+	if type(b) == "number" then
+		return Vector3.new(a.X / b, a.Y / b, a.Z / b)
+	end
+	return Vector3.new(a.X / b.X, a.Y / b.Y, a.Z / b.Z)
+end
 function Vector3.new(x, y, z)
 	assert(type(x) == "number" and type(y) == "number" and type(z) == "number", "Vector3.new: argumentos invalidos")
 	return setmetatable({ X = x, Y = y, Z = z, __type = "Vector3" }, Vector3)
@@ -68,7 +74,7 @@ function UDim2.fromOffset(x, y)
 	return { OX = x, OY = y, __type = "UDim2" }
 end
 function UDim2.new(xs, xo, ys, yo)
-	return { X = xs, XO = xo, Y = ys, YO = yo, __type = "UDim2" }
+	return { X = xs or 0, XO = xo or 0, Y = ys or 0, YO = yo or 0, __type = "UDim2" }
 end
 
 local ColorSequence = {}
@@ -143,6 +149,11 @@ CFrame.__mul = function(a, b)
 		mat3mul(a.r, b.r)
 	)
 end
+function CFrame.Inverse(a)
+	local r = a.r
+	local rt = { r[1], r[4], r[7], r[2], r[5], r[8], r[3], r[6], r[9] }
+	return makeCF(-(rt[1] * a.px + rt[2] * a.py + rt[3] * a.pz), -(rt[4] * a.px + rt[5] * a.py + rt[6] * a.pz), -(rt[7] * a.px + rt[8] * a.py + rt[9] * a.pz), rt)
+end
 function CFrame.new(x, y, z)
 	if type(x) == "table" then
 		return makeCF(x.X, x.Y, x.Z, IDENT)
@@ -193,9 +204,13 @@ local Enum = {
 	SurfaceType = enumOf("SurfaceType", { "Smooth" }),
 	NormalId = enumOf("NormalId", { "Front", "Bottom" }),
 	SurfaceGuiSizingMode = enumOf("SurfaceGuiSizingMode", { "PixelsPerStud" }),
-	Font = enumOf("Font", { "GothamBlack", "GothamMedium" }),
+	Font = enumOf("Font", { "GothamBlack", "GothamMedium", "GothamBold", "Bodoni", "Garamond", "Gotham" }),
 	ScaleType = enumOf("ScaleType", { "Fit" }),
 	RollOffMode = enumOf("RollOffMode", { "InverseTapered" }),
+	TextXAlignment = enumOf("TextXAlignment", { "Left", "Center", "Right" }),
+	TextYAlignment = enumOf("TextYAlignment", { "Top", "Center", "Bottom" }),
+	SortOrder = enumOf("SortOrder", { "LayoutOrder" }),
+	KeyCode = enumOf("KeyCode", { "E" }),
 }
 
 ------------------------------------------------------------------------
@@ -219,7 +234,7 @@ local CLASSES = {
 	Model = { props = { "Name", "Parent" } },
 	Folder = { props = { "Name", "Parent" } },
 	SurfaceGui = { props = { "Name", "Parent", "Face", "SizingMode", "PixelsPerStud", "LightInfluence", "Brightness", "AlwaysOnTop" } },
-	TextLabel = { props = { "Name", "Parent", "BackgroundTransparency", "Size", "Position", "Text", "TextScaled", "Font", "TextColor3", "TextStrokeColor3", "TextStrokeTransparency" } },
+	TextLabel = { props = { "Name", "Parent", "BackgroundTransparency", "Size", "Position", "Text", "TextScaled", "Font", "TextColor3", "TextStrokeColor3", "TextStrokeTransparency", "RichText", "TextXAlignment", "TextYAlignment", "ZIndex", "Visible" } },
 	PointLight = { props = LIGHT },
 	SpotLight = { props = concat(LIGHT, { "Face", "Angle" }) },
 	Sound = { props = { "Name", "Parent", "SoundId", "Looped", "Volume", "RollOffMode", "RollOffMinDistance", "RollOffMaxDistance", "Playing" } },
@@ -241,8 +256,25 @@ local CLASSES = {
 	Workspace = { props = { "Name", "Parent" } },
 	Lighting = { props = { "Name", "Parent", "ClockTime", "Brightness", "Ambient", "OutdoorAmbient", "GlobalShadows", "ExposureCompensation", "EnvironmentDiffuseScale", "EnvironmentSpecularScale", "ShadowSoftness" } },
 	RunService = { props = { "Name", "Parent" } },
+	RemoteEvent = { props = { "Name", "Parent" } },
+	ProximityPrompt = { props = { "Name", "Parent", "ActionText", "ObjectText", "HoldDuration", "MaxActivationDistance", "RequiresLineOfSight", "KeyboardKeyCode", "Enabled" } },
+	LocalScript = { props = { "Name", "Parent", "Source", "Disabled" } },
+	StarterPlayer = { props = { "Name", "Parent" } },
+	ReplicatedStorage = { props = { "Name", "Parent" } },
+	Players = { props = { "Name", "Parent" } },
+	CollectionService = { props = { "Name", "Parent" } },
+	Camera = { props = { "Name", "Parent", "CFrame" } },
+	TextButton = { props = { "Name", "Parent", "BackgroundTransparency", "Size", "Position", "Text", "TextScaled", "Font", "TextColor3", "BackgroundColor3", "AutoButtonColor", "LayoutOrder", "TextWrapped", "Visible" } },
+	ScrollingFrame = { props = { "Name", "Parent", "BackgroundTransparency", "Position", "Size", "CanvasSize", "ScrollBarThickness", "BorderSizePixel", "LayoutOrder" } },
+	UIListLayout = { props = { "Name", "Parent", "Padding", "SortOrder" } },
 }
+CLASSES.Frame.props = concat(CLASSES.Frame.props, { "LayoutOrder", "Visible" })
+CLASSES.TextLabel.props = concat(CLASSES.TextLabel.props, { "LayoutOrder", "TextWrapped", "BackgroundColor3", "AnchorPoint" })
+CLASSES.ScreenGui.props = concat(CLASSES.ScreenGui.props, { "Enabled" })
+CLASSES.Workspace.props = concat(CLASSES.Workspace.props, { "CurrentCamera" })
 
+local __now = 0
+local os = { clock = function() return __now end, time = os.time }
 local __countWrites, __writes = false, 0
 local Inst = {}
 local function newInstance(className)
@@ -262,6 +294,11 @@ Inst.__index = function(self, k)
 	end
 	if k == "Parent" then
 		return rawget(self, "_parent")
+	end
+	if k == "AttributeChanged" then
+		local any = rawget(self, "_anyAttr")
+		if not any then any = Inst._makeSignal() rawset(self, "_anyAttr", any) end
+		return any
 	end
 	local v = self._props[k]
 	if v ~= nil then
@@ -291,6 +328,7 @@ local RANGES = {
 	SurfaceGui = { PixelsPerStud = { 1, 500 } },
 	TextLabel = { BackgroundTransparency = { 0, 1 } },
 }
+RANGES.Beam.Width0 = { 0, 100 }
 
 Inst.__newindex = function(self, k, v)
 	if not self._allowed[k] then
@@ -326,6 +364,57 @@ Inst.__newindex = function(self, k, v)
 		__writes += 1
 	end
 	self._props[k] = v
+end
+local function makeSignal()
+	local sig = { _fns = {} }
+	function sig:Connect(fn)
+		local e = { fn = fn, on = true }
+		table.insert(self._fns, e)
+		return { Disconnect = function() e.on = false end }
+	end
+	function sig:_fire(...)
+		for _, e in self._fns do
+			if e.on then e.fn(...) end
+		end
+	end
+	return sig
+end
+Inst._makeSignal = makeSignal
+function Inst:SetAttribute(k, v)
+	local a = rawget(self, "_attrs")
+	if not a then a = {} rawset(self, "_attrs", a) end
+	if a[k] == v then return end
+	a[k] = v
+	local sigs = rawget(self, "_attrSigs")
+	if sigs and sigs[k] then sigs[k]:_fire() end
+	local any = rawget(self, "_anyAttr")
+	if any then any:_fire(k) end
+end
+function Inst:GetAttribute(k)
+	local a = rawget(self, "_attrs")
+	return a and a[k]
+end
+function Inst:GetAttributeChangedSignal(k)
+	local sigs = rawget(self, "_attrSigs")
+	if not sigs then sigs = {} rawset(self, "_attrSigs", sigs) end
+	if not sigs[k] then sigs[k] = makeSignal() end
+	return sigs[k]
+end
+function Inst:WaitForChild(name)
+	local c = self:FindFirstChild(name)
+	assert(c, "WaitForChild: no existe " .. name .. " en " .. tostring(self._props.Name))
+	return c
+end
+function Inst:Clone()
+	local c = newInstance(self.ClassName)
+	for k, v in self._props do
+		c._props[k] = v
+	end
+	for _, ch in self._children do
+		local cc = ch:Clone()
+		cc.Parent = c
+	end
+	return c
 end
 function Inst:GetChildren()
 	return table.clone(self._children)
@@ -367,9 +456,33 @@ function Inst:Play()
 	self._props.Playing = true
 end
 
+local __noticeLog = {}
+local __localPlayer = nil
+local function __newWithSignals(className)
+	local o = newInstance(className)
+	if className == "RemoteEvent" then
+		rawset(o, "OnServerEvent", makeSignal())
+		rawset(o, "OnClientEvent", makeSignal())
+		rawset(o, "FireClient", function(self, player, ...)
+			table.insert(__noticeLog, { player = player, args = { ... } })
+			self.OnClientEvent:_fire(...)
+		end)
+		rawset(o, "FireServer", function(self, ...)
+			self.OnServerEvent:_fire(__localPlayer, ...)
+		end)
+	elseif className == "ProximityPrompt" then
+		rawset(o, "Triggered", makeSignal())
+	elseif className == "TextButton" then
+		rawset(o, "MouseButton1Click", makeSignal())
+	end
+	if className == "Folder" or className == "Model" or className == "Part" then
+		-- nada
+	end
+	return o
+end
 local Instance = {
 	new = function(className)
-		return newInstance(className)
+		return __newWithSignals(className)
 	end,
 }
 
@@ -397,7 +510,11 @@ rawset(__runService, "Heartbeat", heartbeatSignal)
 rawset(__runService, "IsRunning", function()
 	return true
 end)
+rawset(__runService, "IsStudio", function()
+	return false
+end)
 local function fireHeartbeat(dt)
+	__now += dt
 	for _, entry in __heartbeat do
 		if entry.active then
 			entry.fn(dt)
@@ -405,8 +522,55 @@ local function fireHeartbeat(dt)
 	end
 end
 
+local __replicated = newInstance("ReplicatedStorage")
+local __starterPlayer = newInstance("StarterPlayer")
+do
+	local sps = newInstance("Folder")
+	sps.Name = "StarterPlayerScripts"
+	sps.Parent = __starterPlayer
+end
+local __collection = { _tags = {}, _added = {}, _removed = {} }
+function __collection:AddTag(inst, tag)
+	local list = self._tags[tag]
+	if not list then list = {} self._tags[tag] = list end
+	list[inst] = true
+	if self._added[tag] then self._added[tag]:_fire(inst) end
+end
+function __collection:GetTagged(tag)
+	local out = {}
+	for inst in self._tags[tag] or {} do table.insert(out, inst) end
+	return out
+end
+function __collection:GetInstanceAddedSignal(tag)
+	if not self._added[tag] then self._added[tag] = makeSignal() end
+	return self._added[tag]
+end
+function __collection:GetInstanceRemovedSignal(tag)
+	if not self._removed[tag] then self._removed[tag] = makeSignal() end
+	return self._removed[tag]
+end
+local __players = { _list = {}, PlayerRemoving = makeSignal(), PlayerAdded = makeSignal(), LocalPlayer = nil }
+function __players:GetPlayers() return table.clone(self._list) end
+-- jugador de prueba (tabla con la API que usan el servidor y el cliente)
+local function __makePlayer(name, userId, pos)
+	local gui = newInstance("Folder")
+	gui.Name = "PlayerGui"
+	local hrp = { Name = "HumanoidRootPart", Position = pos or Vector3.new(0, 3, 0) }
+	local ch = { FindFirstChild = function(_, n) return n == "HumanoidRootPart" and hrp or nil end }
+	local pl = { Name = name, UserId = userId, Character = ch, _gui = gui, _hrp = hrp, Parent = true }
+	function pl:WaitForChild(n) return gui end
+	function pl:FindFirstChildOfClass(c) return nil end
+	function pl:GetRankInGroup(g) return self._rank or 0 end
+	table.insert(__players._list, pl)
+	return pl
+end
 local game = {
 	GetService = function(_, name)
+		if name == "ReplicatedStorage" then return __replicated
+		elseif name == "StarterPlayer" then return __starterPlayer
+		elseif name == "CollectionService" then return __collection
+		elseif name == "Players" then return __players
+		end
 		if name == "Workspace" then
 			return workspace
 		elseif name == "Lighting" then
@@ -419,6 +583,24 @@ local game = {
 		error("GetService('" .. tostring(name) .. "') no soportado en el mock")
 	end,
 }
+
+-- Script del servidor: con __withClient = true tiene un hijo "ClientEffects" (el LocalScript)
+local __withClient = false
+local script = {
+	FindFirstChild = function(_, n)
+		if n == "ClientEffects" and __withClient then
+			local ls = newInstance("LocalScript")
+			ls.Name = "ClientEffects"
+			return ls
+		end
+		return nil
+	end,
+}
+do
+	local cam = newInstance("Camera")
+	cam.CFrame = CFrame.new(0, 30, 100)
+	workspace.CurrentCamera = cam
+end
 
 local function warn(...)
 	print("WARN:", ...)

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE8A0"/><stop offset="1" stop-color="#BE8A30"/></linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="#000"/>
+  <path d="M417 210 L409 102 L494 145 L512 84 L530 145 L615 102 L607 210 Z" fill="url(#g)"/>
+  <rect x="415" y="208" width="194" height="24" fill="url(#g)"/>
+  <path d="M435 200 L430 124 L494 160 L512 114 L530 160 L594 124 L589 200 Z" fill="#000"/>
+  <circle cx="409" cy="94" r="9" fill="#FFE8A0"/><circle cx="512" cy="66" r="9" fill="#FFE8A0"/><circle cx="615" cy="94" r="9" fill="#FFE8A0"/>
+  <g font-family="'Playfair Display','Bodoni MT','Didot','Liberation Serif','Times New Roman',serif" font-weight="700" text-anchor="middle">
+    <text x="512" y="320" font-size="74" letter-spacing="14" fill="url(#g)">LA</text>
+    <rect x="212" y="372" width="600" height="3" fill="#D6A446"/>
+    <text x="512" y="540" font-size="150" letter-spacing="6" fill="url(#g)">ALFOMBRA</text>
+    <rect x="182" y="588" width="660" height="3" fill="#D6A446"/>
+    <text x="512" y="810" font-size="250" fill="#D4182A">ROJA</text>
+    <rect x="182" y="878" width="660" height="3" fill="#D6A446"/>
+  </g>
+</svg>

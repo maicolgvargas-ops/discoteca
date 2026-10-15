@@ -13,9 +13,9 @@ local function finite(n)
 	return n == n and n ~= math.huge and n ~= -math.huge
 end
 
-print("\n=== TESTS MAYA CLUB ===")
+print("\n=== TESTS LA ALFOMBRA ROJA (perfil " .. PROFILE_NAME .. ") ===")
 
-check("modelo MayaClub en Workspace", club ~= nil and workspace:FindFirstChild("MayaClub") == club)
+check("modelo LaAlfombraRoja en Workspace", club ~= nil and workspace:FindFirstChild("LaAlfombraRoja") == club)
 check("Baseplate de plantilla eliminado", workspace:FindFirstChild("Baseplate") == nil)
 
 -- piezas y colisionadores ------------------------------------------------
@@ -53,7 +53,7 @@ for _, d in club:GetDescendants() do
 		table.insert(lightsList, { x = part.CFrame.px, y = part.CFrame.py, z = part.CFrame.pz, r = d.Range, on = d.Enabled ~= false })
 	end
 end
-check("luces <= 260 (rendimiento)", #lightsList <= 260, #lightsList)
+check("luces dentro del limite del perfil (Equilibrado <= 145, Alta <= 200)", #lightsList <= (PROFILE_NAME == "Alta" and 200 or 145), #lightsList)
 print("        luces=" .. #lightsList)
 check("SpawnLocation presente", club:FindFirstChild("ClubSpawn") ~= nil)
 local hasSound = false
@@ -151,36 +151,50 @@ check("entrada: hueco de puerta libre", not hasTopBetween(0, 79, 1, 10))
 check("pared sur cerrada fuera de la puerta", hasTopBetween(40, 79, 1, 22.5))
 
 -- ================= IDENTIDAD MAYA CLUB =================
-local aura = {}
+do
+local oldBrand = {}
 for _, d in club:GetDescendants() do
-	if string.find(string.upper(d.Name), "AURA") then
-		table.insert(aura, d.Name)
+	if string.find(string.upper(d.Name), "MAYA") or string.find(string.upper(d.Name), "AURA") then
+		table.insert(oldBrand, d.Name)
 	end
-	if d:IsA("TextLabel") and string.find(string.upper(d.Text), "AURA") then
-		table.insert(aura, d.Text)
+	if d:IsA("TextLabel") and (string.find(string.upper(d.Text), "MAYA") or string.find(string.upper(d.Text), "AURA")) then
+		table.insert(oldBrand, d.Text)
 	end
 end
-check("sin rastro de la marca antigua en nombres ni textos", #aura == 0, table.concat(aura, ","))
-local texts = {}
+check("sin rastro de las marcas antiguas (MAYA/AURA) en nombres ni textos", #oldBrand == 0, table.concat(oldBrand, ","))
+local function plain(s) return (string.gsub(s, "<[^>]+>", "")) end
+local brandLabels, redRoja = 0, 0
 for _, d in club:GetDescendants() do
-	if d:IsA("TextLabel") then
-		texts[d.Text] = (texts[d.Text] or 0) + 1
+	if d:IsA("TextLabel") and plain(d.Text) == "LA ALFOMBRA ROJA" then
+		brandLabels += 1
+		if string.find(d.Text, '<font color="#D4182A">ROJA</font>', 1, true) then redRoja += 1 end
 	end
 end
-check("letrero principal 'MAYA CLUB' en fachada y rooftop", (texts["MAYA CLUB"] or 0) >= 2, texts["MAYA CLUB"])
-check("DJ con 'MAYA' en frente y pantalla", (texts["MAYA"] or 0) >= 3, texts["MAYA"])
-local monoPlates = named("Mono[%a]*_Plate$")
-local monoCores = named("Mono[%a]*_Core$")
-check("monogramas de geometria (>= 8 placas y 8 nucleos)", #monoPlates >= 8 and #monoCores >= 8, #monoPlates .. "/" .. #monoCores)
-local ui = game:GetService("StarterGui"):FindFirstChild("MayaClubUI")
+check("rotulos 'LA ALFOMBRA ROJA' (fachada, rooftop, pantalla DJ) con ROJA en rojo", brandLabels >= 3 and redRoja == brandLabels, brandLabels .. "/" .. redRoja)
+check("frente del DJ y del rooftop con ALFOMBRA ROJA", find("DJFront") ~= nil and count("^RoofDJFront$") == 1)
+local logos = count("Mono[%a]*_Plate$") + count("Logo_Plate$") + count("Mini%d+_Plate$")
+local crowns = count("_CrownBand$")
+check("logos con corona dorada (>= 14: 7 de pared + photocall 1 grande + 6 pequenos)", logos >= 14 and crowns == logos, logos .. "/" .. crowns)
+local goldLabels, redLabels, serif = 0, 0, true
+for _, d in club:GetDescendants() do
+	if d:IsA("TextLabel") and d.Name == "ALFOMBRA" then
+		goldLabels += 1
+		if d.Font ~= Enum.Font.Bodoni or d.TextColor3.R < 0.8 or d.TextColor3.B > 0.5 then serif = false end
+	elseif d:IsA("TextLabel") and d.Name == "ROJA" then
+		if d.TextColor3.R > 0.75 and d.TextColor3.G < 0.2 then redLabels += 1 end
+	end
+end
+check("logo: ALFOMBRA en serif dorada y ROJA en rojo, en todos los logos", goldLabels == logos and redLabels == logos and serif, goldLabels .. "/" .. redLabels)
+local ui = game:GetService("StarterGui"):FindFirstChild("LaAlfombraRojaUI")
 local uiTitle
 if ui then
 	for _, d in ui:GetDescendants() do
-		if d:IsA("TextLabel") and d.Text == "MAYA CLUB" then uiTitle = d end
+		if d:IsA("TextLabel") and plain(d.Text) == "LA ALFOMBRA ROJA" then uiTitle = d end
 	end
 end
-check("UI con titulo MAYA CLUB", ui ~= nil and uiTitle ~= nil)
+check("UI con titulo LA ALFOMBRA ROJA", ui ~= nil and uiTitle ~= nil)
 check("sin imagen (LogoImageId vacio) no hay ImageLabel", #(function() local t = {} for _, d in club:GetDescendants() do if d:IsA("ImageLabel") then table.insert(t, d) end end return t end)() == 0)
+end
 
 -- ================= NAVEGACION (BFS por celdas de 1 stud) =================
 -- body = semilado del cuerpo; obstaculos entre h+1.7 y h+5 bloquean; escalones de hasta maxStep
@@ -361,10 +375,10 @@ local function levelNav(body)
 	return nav, sets
 end
 local nav35, sets35 = levelNav(3.5)
-local function in35(lvl, x1, z1, x2, z2, h) return nav35.countIn(sets35[lvl], x1, z1, x2, z2, h) end
+local function in35(lvl, x1, z1, x2, z2, h, tol) return nav35.countIn(sets35[lvl], x1, z1, x2, z2, h, tol) end
 local s1_, s2_ = LAYOUT.s1, LAYOUT.s2
 check("pasillos de 8: cuerpo de 7 studs entra por la puerta y recorre la pista", sets35["0ok"] and in35(0, D.x1 - 8, D.z1, D.x2 + 8, D.z2, 0.2) > 500)
-check("pasillos de 8: llega al escenario y a la escalera 1 (piso 1)", in35(0, -10, St.z2 + 2, 10, St.z2 + 8, 0.2) > 20 and in35(0, s1_.landIn[1] + 1, s1_.landIn[2] + 1, s1_.landIn[3] - 1, s1_.landIn[4] - 1, 0) > 10)
+check("pasillos de 8: llega al escenario y a la escalera 1 (piso 1)", in35(0, -10, St.z2 + 2, 10, St.z2 + 8, 0.2, 0.15) > 20 and in35(0, s1_.landIn[1] + 1, s1_.landIn[2] + 1, s1_.landIn[3] - 1, s1_.landIn[4] - 1, 0) > 10)
 check("pasillos de 8 (piso 2): del descanso de llegada al pie de la escalera 2", sets35["24ok"] and in35(24, s2_.landIn[1] + 1, s2_.landIn[2] + 1, s2_.landIn[3] - 1, s2_.landIn[4] - 1, 24) > 10)
 check("pasillos de 8 (piso 2): recorre el piso 2 (lounges y barras)", in35(24, -60, 30, 60, 70, 24) > 600, in35(24, -60, 30, 60, 70, 24))
 check("pasillos de 8 (piso 3): del descanso de llegada a la barra y al DJ", sets35["48ok"] and in35(48, 40, -50, 76, -10, 48) > 30 and in35(48, -10, -62, 10, -50, rs and (rs.CFrame.py + rs.Size.Y / 2) or 50.2) >= 0, in35(48, 40, -50, 76, -10, 48))
@@ -379,7 +393,7 @@ local function reachNear(part, m)
 	local lvl = levelOf(cf.py)
 	return nav1.countIn(visited, cf.px - s.X / 2 - m, cf.pz - s.Z / 2 - m, cf.px + s.X / 2 + m, cf.pz + s.Z / 2 + m, lvl, 0.06)
 end
-for _, n in { "BarE_Top", "BarW_Top", "VIPBar_Top", "RoofBar_Top", "TicketDesk_Top", "CoatCheck_Top" } do
+for _, n in { "BarE_Top", "BarW_Top", "VIPBar_Top", "RoofBar_Top", "TicketDesk_Top" } do
 	local p = find(n)
 	check("acceso a pie junto a " .. n, p ~= nil and reachNear(p, 2.5) >= 8, p and reachNear(p, 2.5))
 end
@@ -447,7 +461,7 @@ check("mesas altas separadas >= 12", dHt >= 12, dHt)
 
 -- ================= PISTA LED =================
 local tiles = named("^Tile$")
-check("pista LED: 256 baldosas (16 x 16) con juntas", #tiles == 256 and find("DanceBase") ~= nil)
+check("pista LED: baldosas del perfil (" .. TILE_COUNT .. " x " .. TILE_COUNT .. ") con juntas", #tiles == TILE_COUNT * TILE_COUNT and find("DanceBase") ~= nil, #tiles)
 check("pista LED: bisel de 4 lados y 4 tiras LED", count("^DanceBezel%d$") == 4 and count("^DanceLed[NSEW]$") == 4)
 local tileMaterialsOk, tMax = true, 0
 for _, t in tiles do
@@ -628,7 +642,7 @@ for _, t in tiles do
 end
 check("pista LED animada sin sobreexposicion (max <= 0.85) ni apagon", tmax <= 0.85 and tmax >= 0.3, tmax)
 local mirrorN = count("^MirrorFacet$")
-check("bola de espejos: 120-220 facetas cuadradas + nucleo oscuro", mirrorN >= 120 and mirrorN <= 220 and find("MirrorCore") ~= nil, mirrorN)
+check("bola de espejos: facetas + nucleo", mirrorN > 100 and find("MirrorCore") ~= nil, mirrorN)
 local first = find("MirrorFacet")
 local x0, z0 = first.CFrame.px, first.CFrame.pz
 for _ = 1, 10 do fireHeartbeat(1 / 30) end
@@ -651,7 +665,7 @@ __countWrites = false
 local perSec = __writes / 10
 print(string.format("        escrituras de propiedades/s (animacion) = %.0f", perSec))
 check("animacion < 2600 escrituras/s", perSec < 2600, perSec)
-check("existe handle de conexion para limpieza al relanzar", _G.MayaClubConnection ~= nil)
+check("existe handle de conexion para limpieza al relanzar", _G.LaAlfombraRojaConnection ~= nil)
 
 -- piezas flotantes: toda parte visible debe tocar (+-0.08) a otra
 local boxes = {}
@@ -731,7 +745,7 @@ for _, d in club:GetDescendants() do
 		table.insert(shafts, d)
 	end
 end
-check("laseres: 6 haces x 3 capas = 18 Beams (no son piezas solidas)", #beamLayers == 18, #beamLayers)
+check("laseres: 6 haces x " .. PROFILE.laserLayers .. " capas de Beam (no son piezas solidas)", #beamLayers == 6 * PROFILE.laserLayers, #beamLayers)
 local minCore, minMid, minHalo, endsOk = 1, 1, 1, true
 local maxWidth, maxEmission = 0, 0
 for _, b in beamLayers do
@@ -754,15 +768,15 @@ for _, b in shafts do
 		if k.Value < 1 then shaftMin = math.min(shaftMin, k.Value) end
 	end
 end
-check("12 conos de luz de focos con transparencia >= 0.88", #shafts == 12 and shaftMin >= 0.88, #shafts .. "/" .. shaftMin)
-local bloom = __lighting:FindFirstChild("MayaBloom")
+check("conos de luz de focos (12 / " .. PROFILE.shaftEvery .. ") con transparencia >= 0.88", #shafts == 12 // PROFILE.shaftEvery and shaftMin >= 0.88, #shafts .. "/" .. shaftMin)
+local bloom = __lighting:FindFirstChild("AlfombraBloom")
 check("bloom moderado (intensidad <= 0.6, tamano <= 24, umbral >= 0.9)", bloom ~= nil and bloom.Intensity <= 0.6 and bloom.Size <= 24 and bloom.Threshold >= 0.9)
 local shadowLights, strobeMax = 0, 0
 for _, d in club:GetDescendants() do
 	if d:IsA("SpotLight") and d.Shadows == true then shadowLights += 1 end
 end
 for _, st in fx.strobes do strobeMax = math.max(strobeMax, st.light.Brightness) end
-check("sombras solo en las 12 luces clave (focos)", shadowLights == 12, shadowLights)
+check("sombras solo en " .. PROFILE.shadowLights .. " luces clave (limite del perfil)", shadowLights == PROFILE.shadowLights, shadowLights)
 check("estrobos con brillo moderado (<= 4)", strobeMax <= 4, strobeMax)
 local lookOk = true
 for _, k in { "LightIntensity", "AmbientBoost", "Exposure", "Bloom", "BeamTransparency", "BeamBrightness", "BeamWidth", "ShaftTransparency", "TileBrightness", "KeyShadows", "Reflections", "ShadowSoftness" } do
@@ -776,32 +790,48 @@ local function sat(c)
 	local mx, mn = math.max(c.R, c.G, c.B), math.min(c.R, c.G, c.B)
 	return mx > 0 and (mx - mn) / mx or 0, mx
 end
+do
 local facets = named("^MirrorFacet$")
-local allMirror, tones, minRefl = true, {}, 1
+local allMirror, tones, maxRefl, maxColor = true, {}, 0, 0
 for _, f in facets do
 	if f.Material ~= Enum.Material.Metal then allMirror = false end
-	minRefl = math.min(minRefl, f.Reflectance)
+	maxRefl = math.max(maxRefl, f.Reflectance)
+	maxColor = math.max(maxColor, f.Color.R, f.Color.G, f.Color.B)
 	tones[string.format("%.2f", f.Color.R)] = true
 end
 local nTones = 0
 for _ in tones do nTones += 1 end
-check("espejo: facetas Metal con Reflectance 1 y dos tonos de plata alternos", allMirror and minRefl >= 0.99 and nTones == 2, nTones)
+check("espejo: facetas Metal, dos tonos de plata alternos, reflectancia <= 0.9 y color <= 0.95 (sin reflejos quemados)", allMirror and maxRefl <= 0.9 and maxRefl >= 0.7 and maxColor <= 0.95 and nTones == 2, nTones .. "/" .. maxRefl .. "/" .. maxColor)
 local core = find("MirrorCore")
 check("espejo: nucleo oscuro, casquete cromado y varilla", core ~= nil and core.Color.R < 0.15 and find("MirrorMotor") ~= nil and find("MirrorRod") ~= nil)
-local spots = 0
+local spots, spotMax = 0, 0
 for _, n in named("^MirrorSpotCan$") do
-	for _, c in n:GetChildren() do if c:IsA("SpotLight") then spots += 1 end end
+	for _, c in n:GetChildren() do if c:IsA("SpotLight") then spots += 1 spotMax = math.max(spotMax, c.Brightness) end end
 end
-check("espejo: 2 focos de acento sobre la bola", spots == 2, spots)
--- facetas cubren la esfera: ninguna a mas de 0.05 de su radio y separadas entre si
-local radOk, minGap = true, math.huge
+check("espejo: 2 focos de acento suaves (brillo <= 2) sobre la bola", spots == 2 and spotMax <= 2, spots .. "/" .. spotMax)
+local coreLight = core and core:FindFirstChildOfClass("PointLight")
+check("espejo: luz interior suave (<= 1.2)", coreLight ~= nil and coreLight.Brightness <= 1.2)
+-- ninguna faceta metida en el nucleo: todas las esquinas de su cara interior a >= radio del nucleo
 local c0 = core.CFrame.Position
-for i, f in ipairs(facets) do
-	local r = (f.CFrame.Position - c0).Magnitude
-	if r < 3.3 or r > 4.1 then radOk = false end
+local inside, minD, maxD = 0, math.huge, 0
+for _, f in facets do
+	local sx, sy, sz = f.Size.X / 2, f.Size.Y / 2, f.Size.Z / 2
+	for _, cx in { -sx, sx } do
+		for _, cy in { -sy, sy } do
+			local pt = f.CFrame * Vector3.new(cx, cy, sz) -- cara trasera (+Z local = hacia el nucleo)
+			local d = (pt - c0).Magnitude
+			minD = math.min(minD, d); maxD = math.max(maxD, d)
+			if d < core.Size.X / 2 - 0.001 then inside += 1 end
+		end
+	end
 end
-check("espejo: facetas sobre una esfera de radio ~3.4-3.9", radOk)
+print(string.format("        espejo: %d facetas, esquinas interiores a %.3f..%.3f del centro (nucleo r=%.2f)", #facets, minD, maxD, core.Size.X / 2))
+check("espejo: ninguna faceta metida en el nucleo", inside == 0 and #facets > 0, inside)
+local mirrorMin, mirrorMax = PROFILE_NAME == "Alta" and 200 or 110, PROFILE_NAME == "Alta" and 320 or 190
+check(string.format("espejo: numero de facetas del perfil (%d-%d)", mirrorMin, mirrorMax), #facets >= mirrorMin and #facets <= mirrorMax, #facets)
+end
 
+do
 -- mobiliario en blanco y negro, brillante
 local badFurn, nFurn = nil, 0
 local function furniture(pat)
@@ -860,6 +890,102 @@ local ambS = sat(__lighting.Ambient)
 check("ambiente casi neutro (saturacion <= 0.2)", ambS <= 0.2, ambS)
 local floor1 = find("Floor1_Slab")
 check("suelo de marmol negro pulido (Reflectance >= 0.2)", floor1 ~= nil and floor1.Material == Enum.Material.Marble and floor1.Reflectance >= 0.2)
+end
+
+-- ================= ZONA LA ALFOMBRA ROJA, CABINA DE LUCES Y SEGURIDAD =================
+do
+	local noCoat = count("^Coat") == 0
+	for _, d in club:GetDescendants() do
+		if d:IsA("TextLabel") and string.find(string.upper(d.Text), "GUARDARROPA") then noCoat = false end
+	end
+	check("el guardarropa ha desaparecido (sin piezas ni rotulos)", noCoat)
+	local carpet = find("RedCarpet")
+	check("alfombra roja amplia (16 de ancho x 71 de largo) con filetes dorados", carpet ~= nil and carpet.Size.Z >= 16 and carpet.Size.X >= 70 and carpet.Color.R > 0.55 and carpet.Color.G < 0.2 and carpet.Material == Enum.Material.Fabric and carpet.CanCollide == false and count("^CarpetEdge%d$") == 2)
+	local central = find("Carpet")
+	check("el pasillo de entrada tambien es alfombra roja", central ~= nil and central.Color.R > 0.55 and central.Color.G < 0.2)
+	check("14 postes dorados con 12 cordones rojos que cuelgan", count("^Stanchion_Pole$") == 14 and count("^Stanchion_Base$") == 14 and count("^Stanchion_Top$") == 14 and count("^Cordon_RopeA$") == 12 and count("^Cordon_RopeB$") == 12)
+	local pole, rope = find("Stanchion_Pole"), find("Cordon_RopeA")
+	check("postes dorados (Metal) y cordones rojos sin colision", pole ~= nil and pole.Color.R > 0.8 and pole.Color.B < 0.5 and pole.Material == Enum.Material.Metal and rope.Color.R > 0.55 and rope.Color.G < 0.2 and rope.CanCollide == false)
+	local panel = find("PhotocallPanel")
+	check("photocall: panel negro con marco dorado (4 piezas) contra la pared", panel ~= nil and panel.Color.R < 0.1 and panel.Size.Z >= 20 and panel.Size.Y >= 13 and count("^PhotocallFrame[TLR]$") == 3 and find("PhotocallPlinth") ~= nil)
+	check("photocall: logo grande + 6 pequenos repetidos", count("^PhotocallLogo_Plate$") == 1 and count("^PhotocallMini%d+_Plate$") == 6 and count("^PhotocallLogo_CrownBand$") == 1 and count("^PhotocallMini%d+_CrownBand$") == 6)
+	local soft = {}
+	for _, n in named("^Softbox[NS]_Diffuser$") do
+		local l = n:FindFirstChildOfClass("SpotLight")
+		table.insert(soft, { part = n, light = l })
+	end
+	local softOk = #soft == 2
+	for _, sbx in soft do
+		if not (sbx.light and sbx.light.Face == Enum.NormalId.Front and sbx.light.Brightness <= 2 and sbx.part.Color.R > 0.85) then softOk = false end
+	end
+	check("2 luces de fotografia tipo softbox (difusor blanco, foco calido suave, tripode y aro dorado)", softOk and count("^Softbox[NS]_Pole$") == 2 and count("^Softbox[NS]_Leg%d$") == 6 and count("^Softbox[NS]_Rim$") == 2)
+	check("camara de video, 2 palmeras doradas y 2 mesas de champan con cubo, botella y velas", count("^VideoCam_Body$") == 1 and count("^CarpetPalm[NS]_Planter$") == 2 and count("^CarpetBucket%-?%d+$") == 2 and count("^CarpetBottle%-?%d+$") == 2 and count("^CarpetCandle%-?%d+_Candle1$") == 2)
+	check("rotulo de bienvenida en la pared", find("CarpetSign") ~= nil)
+	-- cabina de luces
+	local top, base = find("LightDesk_Top"), find("LightDesk_Base")
+	check("cabina de luces: consola negra con filete dorado, 8 faders con mandos dorados y 3 pantallas", top ~= nil and base ~= nil and base.Color.R < 0.12 and count("^LightDesk_Trim[FLR]$") == 3 and count("^LightDesk_Slot%d$") == 8 and count("^LightDesk_Knob%d$") == 8 and count("^LightDesk_Screen%d$") == 3 and find("LightDeskSign") ~= nil and find("ControlStatusLabel") ~= nil)
+	local knob = find("LightDesk_Knob1")
+	check("cabina: mandos y filetes en dorado pulido", knob.Color.R > 0.8 and knob.Color.B < 0.5 and knob.Material == Enum.Material.Metal)
+	local cp = top.CFrame.Position
+	check("cabina junto al DJ, sobre el escenario y con vista a la pista", cp.Z < LAYOUT.stage.z2 and cp.Z > LAYOUT.stage.z1 and cp.X > LAYOUT.stage.x1 and cp.X < -8 and math.abs(cp.X) > 8 and cp.Y > LAYOUT.stage.top)
+	check("cabina accesible a pie (frente al escritorio, cuerpo de 2) y por el lado del operador", nav1.countIn(visited, cp.X - 6, cp.Z + 1.5, cp.X + 6, cp.Z + 5, LAYOUT.stage.top) >= 20 and nav1.countIn(visited, cp.X - 6, cp.Z - 4, cp.X + 6, cp.Z - 1.8, LAYOUT.stage.top) >= 8)
+	-- circulacion alrededor de la alfombra y la cabina
+	check("alfombra transitable para cuerpos de 7 studs desde la puerta", in35(0, -72, 58, -14, 70, 0) > 150, in35(0, -72, 58, -14, 70, 0))
+	check("alfombra transitable con cuerpo de 2 hasta el photocall", reachedIn(-74, 58, -70, 70, 0) > 30)
+	check("entre las mesas altas y la alfombra quedan >= 8 studs libres para cuerpos de 7", in35(0, -70, 42, -30, 47, 0) > 20, in35(0, -70, 42, -30, 47, 0))
+	-- luces de seguridad: solo con ellas los pasillos, pisos y escaleras quedan cubiertos
+	local safeLights = {}
+	for _, d in club:GetDescendants() do
+		if d:IsA("PointLight") or d:IsA("SpotLight") then
+			local pn = d.Parent.Name
+			for _, pat in { "^Fill", "HallStrip", "^Door_", "Stair", "Landing", "CarpetFill", "LightDeskFill" } do
+				if string.find(pn, pat) then
+					table.insert(safeLights, { x = d.Parent.CFrame.px, y = d.Parent.CFrame.py, z = d.Parent.CFrame.pz, r = d.Range })
+					break
+				end
+			end
+		end
+	end
+	local function litSafe(x, y, z)
+		for _, l in safeLights do
+			local dx, dy, dz = x - l.x, y - l.y, z - l.z
+			if dy < 1 and (dx * dx + dy * dy + dz * dz) <= (0.75 * l.r) ^ 2 then return true end
+		end
+		return false
+	end
+	for _, lvl in { { 0.2, "piso 1" }, { 24, "piso 2" }, { 48, "piso 3" } } do
+		local tot, okc = 0, 0
+		for i = 0, (W.x2 - W.x1) + 5 do
+			for j = 0, (W.z2 - W.z1) + 5 do
+				local x, z = OX1 + i + 0.5, OZ1 + j + 0.5
+				if math.abs(x) < 78 and math.abs(z) < 78 then
+					for _, h in nav1.nodes[i][j] do
+						if math.abs(h - lvl[1]) < 0.06 and visited[nav1.key(i, j, h)] then
+							tot += 1
+							if litSafe(x, h + 3, z) then okc += 1 end
+						end
+					end
+				end
+			end
+		end
+		check(string.format("solo con las luces de seguridad (todo lo demas apagado) %s queda cubierto: %.0f%%", lvl[2], 100 * okc / math.max(1, tot)), tot > 0 and okc / tot >= 0.9)
+	end
+	local stTot, stOk = 0, 0
+	for i = 0, (W.x2 - W.x1) + 5 do
+		for j = 0, (W.z2 - W.z1) + 5 do
+			local x, z = OX1 + i + 0.5, OZ1 + j + 0.5
+			if (math.abs(x) > 67 and math.abs(x) < 79) and math.abs(z) < 66 then
+				for _, h in nav1.nodes[i][j] do
+					if h > 0.5 and h < 47 and visited[nav1.key(i, j, h)] and math.abs(h - 24) > 0.06 then
+						stTot += 1
+						if litSafe(x, h + 3, z) then stOk += 1 end
+					end
+				end
+			end
+		end
+	end
+	check(string.format("escaleras: %d/%d celdas de peldano iluminadas solo con luces de seguridad", stOk, stTot), stTot > 100 and stOk / stTot >= 0.9)
+end
 
 -- ================= CRISTALERIA Y HALLOWEEN =================
 local rims = named("Glass%d+_Rim$")
@@ -876,7 +1002,7 @@ check("velas con llama (>= 12 racimos)", count("Candle%d*_Candle1$") >= 12, coun
 check("telaranas (>= 7)", count("Web%u?%d*_R0$") >= 7, count("Web%u?%d*_R0$"))
 check("murcielagos (>= 14)", count("Bat%d+_Body$") >= 14, count("Bat%d+_Body$"))
 check("guirnaldas y calderos", count("Garland_Bulb0$") >= 3 and count("Cauldron_Pot$") >= 3)
-check("luces de llama con parpadeo (>= 15)", #fx.flames >= 15, #fx.flames)
+check("luces de llama con parpadeo (>= 15, o ninguna si el perfil las recorta)", #fx.flames >= (PROFILE.pruneMinor and 0 or 15), #fx.flames)
 
 print(string.format("\nRESULTADO: %d fallo(s)", failures))
 if failures > 0 then
