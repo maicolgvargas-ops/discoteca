@@ -1,5 +1,7 @@
 # MAYA CLUB — discoteca de 3 pisos para Roblox (Luau)
 
+**Versión LUXURY:** negro lacado, marfil, cromo y latón; mucho menos neón; bola de espejos de ~175 facetas; mobiliario blanco y negro pulido. Detalles en la sección "Estilo luxury".
+
 Versión profesional basada en el logo adjunto (monograma "M" geométrico plateado con acentos violeta y cian + texto **MAYA CLUB**). Se construye **100 % por código**: un único `Script` genera todo al darle a Play. No necesita ningún asset de Roblox.
 
 > **Qué se ha probado y qué no.** Todo lo de este documento marcado como "comprobado" se verificó con el **simulador** (`tests/run.sh`: el script se ejecuta contra un mock de la API de Roblox con el CLI de Luau). **No he abierto Roblox Studio** ni hay físicas ni render reales en esa prueba: el aspecto visual, el rendimiento real y la colisión con avatares reales siguen pendientes de tu prueba en Studio (F5). La versión anterior (2868 partes / 141 luces) sí la ejecutaste tú sin líneas rojas.
@@ -14,7 +16,7 @@ Versión profesional basada en el logo adjunto (monograma "M" geométrico platea
 | Pista LED | 12×12 de 64×64 | **16×16 baldosas (256) en 64×64**, base de mármol, juntas, cristal ahumado, bisel metálico e hilo de neón |
 | Parqueadero | coches de bloques | **20 deportivos** (3 siluetas, 4 colores) en **36 plazas de 10 × 20** |
 | Marca | AURA CLUB | **MAYA CLUB** en fachada, rooftop, DJ, 8 monogramas, señales y UI |
-| Totales (mock) | 2868 partes / 141 luces | **5107 partes / 170 luces** |
+| Totales (mock) | 2868 partes / 141 luces | **5214 partes / 172 luces** |
 
 ## Identidad MAYA CLUB
 
@@ -52,6 +54,15 @@ Versión profesional basada en el logo adjunto (monograma "M" geométrico platea
 
 Calabazas con cara y llama parpadeante, velas, telarañas, murciélagos, guirnaldas y calderos, repartidos por el espacio ampliado, sin colisión. Vasos de cristal (tumbler, highball, copa y chupitos) con base, pared translúcida, borde, líquido, hielo, pajillas, rodajas y posavasos, en las 4 barras; decorativos y sin colisión.
 
+## Estilo luxury (renderizado y acabado)
+
+- **Paleta:** negro lacado, marfil, cromo y latón/champán. Los antiguos acentos magenta/cian/violeta pasan a oro rosa, hielo y lila suave; los neones animados oscilan despacio entre champán y blanco hielo (nada saturado). El monograma conserva un violeta suave como guiño al logo.
+- **Menos neón:** marcos, esquinas, remates, filetes de techo y tiras ahora son **latón pulido** (Metal), no neón; los pasamanos son cromo; los anillos de altavoz, discos del DJ, zócalos de sofá y pies de mesa dejan de brillar. Las baldosas LED bajan a un máx. de 0,7 (onda champán → hielo) y el bloom a 0,3. Piezas Neon totales: **1369 → 1081** (incluye 256 baldosas, peldaños y Halloween); los neones no-Halloween saturados desaparecen.
+- **Bola de espejos:** 175 facetas cuadradas de 0,92 en 11 anillos de latitud (desfasados como ladrillo), `Metal` con `Reflectance = 1`, alternando dos tonos de plata para que cada faceta se lea; núcleo oscuro mate (las juntas se ven negras), casquete/motor y varilla cromados, **dos focos de acento** que la bañan y luz puntual interior. Gira a 0,4 rad/s.
+- **Mobiliario blanco y negro, pulido:** sofás (cuero lacado negro / marfil, vivo dorado, zócalo cromado), mesas bajas de **mármol blanco**, mesas altas **lacadas en negro**, taburetes de cuero negro con pie cromado, barras con cuerpo negro lacado y encimera de mármol blanco, tumbonas marfil, estanterías lacadas, suelo de mármol negro con `Reflectance 0,24`.
+- **Iluminación:** ambiente casi neutro cálido, `ColorCorrection` con tinte cálido y saturación −0,08, atmósfera ahumada cálida, luces de relleno blancas/cálidas, reflejos al máximo (`Reflections = 1`). Cócteles en tonos ámbar, burdeos, menta, rosado y hielo.
+- Todos los ajustes siguen en `CONFIG.Look`; para volver a más color sube `TileBrightness` y `Bloom`.
+
 ## Instalación
 
 Elige **una**:
@@ -68,7 +79,7 @@ Los archivos se generan con `tools/make_place.py` (XML validado, Source idéntic
 2. Pulsa **Play (F5)** y abre **View → Output**. Debe aparecer:
    ```
    [MayaClub] Sin musica: CONFIG.MusicId esta vacio (opcional). Pon un audio que puedas usar.
-   [MayaClub] listo: 5107 partes, 170 luces, 3 pisos.
+   [MayaClub] listo: 5214 partes, 172 luces, 3 pisos.
    ```
    No debe haber líneas rojas. Si las hay, copia el texto con su número de línea.
 3. Con Play se borran el `Baseplate` y el `SpawnLocation` de la plantilla (`RemoveTemplateObjects = false` para conservarlos).
@@ -108,7 +119,7 @@ Los archivos se generan con `tools/make_place.py` (XML validado, Source idéntic
 tests/run.sh        # requiere `luau` (https://github.com/luau-lang/luau/releases) y python3
 ```
 
-El script se ejecuta contra `tests/mock_roblox.luau`, que rechaza clases, propiedades y miembros de `Enum` inexistentes y valida rangos. **135 comprobaciones, todas OK:**
+El script se ejecuta contra `tests/mock_roblox.luau`, que rechaza clases, propiedades y miembros de `Enum` inexistentes y valida rangos. **146 comprobaciones, todas OK:**
 
 - **Tamaños:** losas de 160 × 160 en los 3 pisos; terreno 256 × 334; suelo en todo el terreno; perímetro sin huecos (muro hasta y = 10 + barrera hasta 70, muestreo cada 2 studs); el área alcanzable a pie queda dentro del muro.
 - **Rutas (BFS por celdas de 1 stud):** desde el spawn se alcanzan escenario, pista, pisos 2 y 3, DJ del rooftop, piscina, las 4 barras, taquilla, guardarropa y los 4 descansos; >90 % de las celdas planas de cada piso. Con cuerpo de 7 studs se recorre el piso 1 y cada nivel desde el descanso de su escalera; con cuerpo de 5 studs, los 3 pisos. Ruta sin escalones del club al parqueadero.

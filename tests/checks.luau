@@ -628,10 +628,10 @@ for _, t in tiles do
 end
 check("pista LED animada sin sobreexposicion (max <= 0.85) ni apagon", tmax <= 0.85 and tmax >= 0.3, tmax)
 local mirrorN = count("^MirrorFacet$")
-check("bola de espejos: 44 facetas + nucleo", mirrorN == 44 and find("MirrorCore") ~= nil, mirrorN)
+check("bola de espejos: 120-220 facetas cuadradas + nucleo oscuro", mirrorN >= 120 and mirrorN <= 220 and find("MirrorCore") ~= nil, mirrorN)
 local first = find("MirrorFacet")
 local x0, z0 = first.CFrame.px, first.CFrame.pz
-fireHeartbeat(1 / 30); fireHeartbeat(1 / 30); fireHeartbeat(1 / 30)
+for _ = 1, 10 do fireHeartbeat(1 / 30) end
 check("la bola de espejos gira", math.abs(first.CFrame.px - x0) + math.abs(first.CFrame.pz - z0) > 0.001)
 local screen = find("DJScreen")
 check("pantalla LED con texto", screen ~= nil and #screen:GetChildren() > 0)
@@ -769,6 +769,97 @@ for _, k in { "LightIntensity", "AmbientBoost", "Exposure", "Bloom", "BeamTransp
 	if LOOK[k] == nil then lookOk = false end
 end
 check("ajustes CONFIG.Look expuestos (12 parametros)", lookOk)
+
+
+-- ================= ESTILO LUXURY: espejos, mobiliario, neon e iluminacion =================
+local function sat(c)
+	local mx, mn = math.max(c.R, c.G, c.B), math.min(c.R, c.G, c.B)
+	return mx > 0 and (mx - mn) / mx or 0, mx
+end
+local facets = named("^MirrorFacet$")
+local allMirror, tones, minRefl = true, {}, 1
+for _, f in facets do
+	if f.Material ~= Enum.Material.Metal then allMirror = false end
+	minRefl = math.min(minRefl, f.Reflectance)
+	tones[string.format("%.2f", f.Color.R)] = true
+end
+local nTones = 0
+for _ in tones do nTones += 1 end
+check("espejo: facetas Metal con Reflectance 1 y dos tonos de plata alternos", allMirror and minRefl >= 0.99 and nTones == 2, nTones)
+local core = find("MirrorCore")
+check("espejo: nucleo oscuro, casquete cromado y varilla", core ~= nil and core.Color.R < 0.15 and find("MirrorMotor") ~= nil and find("MirrorRod") ~= nil)
+local spots = 0
+for _, n in named("^MirrorSpotCan$") do
+	for _, c in n:GetChildren() do if c:IsA("SpotLight") then spots += 1 end end
+end
+check("espejo: 2 focos de acento sobre la bola", spots == 2, spots)
+-- facetas cubren la esfera: ninguna a mas de 0.05 de su radio y separadas entre si
+local radOk, minGap = true, math.huge
+local c0 = core.CFrame.Position
+for i, f in ipairs(facets) do
+	local r = (f.CFrame.Position - c0).Magnitude
+	if r < 3.3 or r > 4.1 then radOk = false end
+end
+check("espejo: facetas sobre una esfera de radio ~3.4-3.9", radOk)
+
+-- mobiliario en blanco y negro, brillante
+local badFurn, nFurn = nil, 0
+local function furniture(pat)
+	for _, d in named(pat) do
+		nFurn += 1
+		local sa, v = sat(d.Color)
+		local polished = d.Reflectance >= 0.15 or d.Material == Enum.Material.Metal or d.Material == Enum.Material.Marble
+		if (sa > 0.14 and v > 0.25) or not (v < 0.25 or v > 0.78 or d.Material == Enum.Material.Metal) or not polished then
+			badFurn = badFurn or string.format("%s sat=%.2f v=%.2f refl=%.2f", d.Name, sa, v, d.Reflectance)
+		end
+	end
+end
+for _, pat in { "Sofa[%a]*%d*_Seat$", "Sofa[%a]*%d*_Back$", "Booth[EW]%d*_Seat$", "^LoungeTable%d+_Top$", "^HighTable%d+_Top$", "^BoothTable[EW]%d*_Top$", "Stool%d+_Seat$", "^Bar[EW]_Top$", "^Bar[EW]_Body$", "^VIPBar_Top$", "^RoofBar_Top$", "Lounger[EW]%d+_Base$" } do
+	furniture(pat)
+end
+print("        muebles revisados: " .. nFurn)
+check("mobiliario en blanco y negro (saturacion <= 0.14) y pulido (reflectancia/marmol/metal)", badFurn == nil and nFurn >= 90, badFurn or nFurn)
+local whites, blacks = 0, 0
+for _, d in named("Sofa[%a]*%d*_Seat$") do
+	local _, v = sat(d.Color)
+	if v > 0.78 then whites += 1 elseif v < 0.25 then blacks += 1 end
+end
+check("sofas en ambos tonos: blancos y negros", whites >= 6 and blacks >= 6, whites .. "/" .. blacks)
+
+-- menos neon: todos los neones animados/acentos son suaves y escasos
+local neonN, neonBright, worstNeon = 0, 0, nil
+local skip = "Pumpkin[%w]*_|Flame|Eye|Mouth|Smile|Bulb|Bubble|Liquid|Taillight|Headlight|FogLight|Candle|Coaster|Slice|Tray|Landing|Door[AL]|Garland|Cauldron|Bat%d|Edge|Cyan|Strobe|^Tile$|Lip"
+for _, d in parts do
+	if d.Material == Enum.Material.Neon then
+		local skipIt = false
+		for pat in string.gmatch(skip, "[^|]+") do
+			if string.find(d.Name, pat) then skipIt = true break end
+		end
+		if not skipIt then
+			neonN += 1
+			local sa, v = sat(d.Color)
+			if sa > 0.6 and v > 0.5 then worstNeon = worstNeon or (d.Name .. string.format(" sat=%.2f", sa)) end
+		end
+	end
+end
+print("        piezas de neon (sin Halloween/coches/identidad): " .. neonN)
+check("neon contenido: sin colores saturados y <= 260 piezas (sin baldosas ni peldanos)", worstNeon == nil and neonN <= 260, worstNeon or neonN)
+local ice, rest = 0, 0
+local function hueCheck(t)
+	local c = t
+	return sat(c) < 0.5
+end
+local lampsBad
+for _, l in fx.lamps do
+	if not hueCheck(l.light.Color) then lampsBad = true end
+end
+check("luces de relleno blancas/calidas (sin tintes saturados)", not lampsBad)
+local cc = game:GetService("Lighting"):FindFirstChildOfClass("ColorCorrectionEffect")
+check("correccion de color elegante (saturacion <= 0, tinte calido)", cc ~= nil and cc.Saturation <= 0 and cc.TintColor.R >= cc.TintColor.B)
+local ambS = sat(__lighting.Ambient)
+check("ambiente casi neutro (saturacion <= 0.2)", ambS <= 0.2, ambS)
+local floor1 = find("Floor1_Slab")
+check("suelo de marmol negro pulido (Reflectance >= 0.2)", floor1 ~= nil and floor1.Material == Enum.Material.Marble and floor1.Reflectance >= 0.2)
 
 -- ================= CRISTALERIA Y HALLOWEEN =================
 local rims = named("Glass%d+_Rim$")

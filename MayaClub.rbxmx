@@ -11,7 +11,7 @@
 	Piso 2: VIP lounge de cristal con barra, sofas y balcon sobre la pista
 	Piso 3: rooftop con DJ, barra, piscina, fire pits y loungers
 
-	Coordenadas: edificio de 100x100 studs centrado en (0,0,0).
+	Coordenadas: edificio de 160x160 studs centrado en (0,0,0).
 	Suelo de cada piso (parte superior): Y = 0 / 24 / 48. Entrada por el sur (+Z).
 	Escaleras: P1->P2 al este, P2->P3 al oeste.
 
@@ -42,12 +42,12 @@ local CONFIG = {
 		LightIntensity = 1.0, -- multiplica el brillo de TODAS las luces (0.5 = mitad, 1.5 = +50 %)
 		AmbientBoost = 1.0, -- multiplica el ambiente base: sube si el interior se ve oscuro, baja para mas contraste
 		Exposure = 0.5, -- Lighting.ExposureCompensation (-5..5)
-		Bloom = { Intensity = 0.45, Size = 20, Threshold = 1.0 }, -- brillo difuso del neon (antes 1.3 / 42 / 0.85)
+		Bloom = { Intensity = 0.3, Size = 18, Threshold = 1.0 }, -- brillo difuso muy contenido (luxury: antes 0.45 / 20)
 		BeamTransparency = 0.0, -- se SUMA a la transparencia de los laseres (+0.05 = mas transparentes, -0.1 = mas solidos)
 		BeamBrightness = 1.0, -- multiplica la emision de luz de laseres y conos (0..2)
 		BeamWidth = 1.0, -- multiplica el grosor de laseres y conos
 		ShaftTransparency = 0.0, -- se SUMA a la transparencia de los conos de luz de los focos
-		TileBrightness = 0.85, -- brillo maximo de las baldosas LED (1 = como antes)
+		TileBrightness = 0.7, -- brillo maximo de las baldosas LED (1 = maximo)
 		KeyShadows = true, -- sombras en las luces clave (solo se ven con Lighting.Technology = Future o ShadowMap)
 		Reflections = 1.0, -- Lighting.EnvironmentSpecularScale (0..1): reflejos en suelos y cristal
 		ShadowSoftness = 0.35, -- Lighting.ShadowSoftness (0..1)
@@ -72,8 +72,8 @@ CONFIG.MusicId = normalizeAudioId(CONFIG.MusicId)
 CONFIG.LogoImageId = normalizeAudioId(CONFIG.LogoImageId)
 
 -- segundos entre actualizaciones de cada efecto (cada cambio de propiedad se replica a los clientes)
-local RATES = CONFIG.LowPerformance and { fast = 0.1, tiles = 0.5, glows = 0.5, mirror = 0.25 }
-	or { fast = 0.05, tiles = 0.25, glows = 0.25, mirror = 0.1 }
+local RATES = CONFIG.LowPerformance and { fast = 0.1, tiles = 0.5, glows = 0.5, mirror = 0.3 }
+	or { fast = 0.05, tiles = 0.25, glows = 0.25, mirror = 0.15 }
 
 local FLOOR_Y = { 0, 24, 48 }
 local FLOOR_H = 22 -- altura libre entre piso y techo (losa de 2 studs)
@@ -81,23 +81,24 @@ local BEAM_LEN = 43
 local BEAM_PITCH = math.rad(-68)
 
 local C = {
-	black = Color3.fromRGB(10, 8, 18),
-	dark = Color3.fromRGB(24, 19, 40),
-	wall = Color3.fromRGB(32, 25, 52),
-	floor = Color3.fromRGB(18, 13, 30),
-	deck = Color3.fromRGB(46, 38, 50),
-	purple = Color3.fromRGB(150, 60, 255),
-	magenta = Color3.fromRGB(255, 40, 170),
-	cyan = Color3.fromRGB(0, 230, 255),
-	blue = Color3.fromRGB(70, 100, 255),
+	-- paleta LUXURY: negro lacado, marfil, cromo y champan; los acentos de color son suaves
+	black = Color3.fromRGB(10, 10, 12),
+	dark = Color3.fromRGB(26, 26, 30),
+	wall = Color3.fromRGB(30, 29, 34),
+	floor = Color3.fromRGB(12, 12, 15),
+	deck = Color3.fromRGB(44, 42, 46),
+	purple = Color3.fromRGB(176, 160, 208), -- lila suave
+	magenta = Color3.fromRGB(226, 190, 156), -- oro rosa
+	cyan = Color3.fromRGB(196, 224, 238), -- hielo
+	blue = Color3.fromRGB(160, 180, 215),
 	white = Color3.fromRGB(255, 255, 255),
-	gold = Color3.fromRGB(255, 190, 80),
-	velvet = Color3.fromRGB(95, 15, 70),
+	gold = Color3.fromRGB(222, 178, 98),
+	velvet = Color3.fromRGB(15, 15, 18), -- cuero negro
 	glass = Color3.fromRGB(150, 200, 255),
 	wood = Color3.fromRGB(70, 45, 35),
 	green = Color3.fromRGB(30, 120, 60),
 	fire = Color3.fromRGB(255, 140, 40),
-	sofaWarm = Color3.fromRGB(176, 78, 34),
+	sofaWarm = Color3.fromRGB(238, 234, 226), -- cuero marfil
 	warmWhite = Color3.fromRGB(255, 214, 170),
 	orange = Color3.fromRGB(255, 120, 20),
 	pumpkin = Color3.fromRGB(240, 105, 15),
@@ -105,13 +106,25 @@ local C = {
 	flame = Color3.fromRGB(255, 196, 60),
 	candle = Color3.fromRGB(238, 222, 188),
 	web = Color3.fromRGB(225, 225, 240),
-	violet = Color3.fromRGB(150, 60, 255),
-	silver = Color3.fromRGB(205, 208, 228),
-	navy = Color3.fromRGB(14, 12, 30),
+	violet = Color3.fromRGB(128, 100, 196), -- acento del monograma (suave)
+	silver = Color3.fromRGB(214, 217, 230),
+	navy = Color3.fromRGB(14, 12, 24),
+	ivory = Color3.fromRGB(240, 237, 230),
+	chrome = Color3.fromRGB(206, 210, 220),
 }
 local M = Enum.Material
 local DECOR = { CanCollide = false, CastShadow = false }
-local BOTTLES = { C.magenta, C.cyan, C.gold, C.purple, C.green, C.blue }
+local BOTTLES = {
+	Color3.fromRGB(205, 150, 80),
+	Color3.fromRGB(228, 232, 238),
+	C.gold,
+	Color3.fromRGB(140, 90, 60),
+	Color3.fromRGB(150, 180, 150),
+	Color3.fromRGB(200, 210, 225),
+}
+-- acabados pulidos: cuero lacado, marmol y cromo
+local LACQUER = { Reflectance = 0.22 }
+local MARBLE_W = { Reflectance = 0.3 }
 
 ------------------------------------------------------------------------
 -- Limpieza de ejecuciones anteriores
@@ -260,7 +273,14 @@ local function addLight(part, color, range, spot, brightness, shadows)
 end
 
 -- neon (decorativo, sin colision). opts: cycle, phase, light, spot, brightness
+-- marcos, esquinas y remates que antes eran neon ahora son filetes de laton pulido (menos neon, mas lujo)
+local METAL_TRIM = { "^MainSignFrame", "^FacadeBanner%a$", "^Corner%d", "^ScreenFrame", "^CeilStrip", "^Pillar%aCap$", "^Door_Top$", "^StageCeil$" }
 local function glow(parent, name, x1, y1, z1, x2, y2, z2, color, opts)
+	for _, pat in METAL_TRIM do
+		if string.find(name, pat) then
+			return B(parent, name, x1, y1, z1, x2, y2, z2, C.gold, M.Metal, { CanCollide = false, CastShadow = false, Reflectance = 0.6 })
+		end
+	end
 	local p = B(parent, name, x1, y1, z1, x2, y2, z2, color, M.Neon, DECOR)
 	if opts then
 		local light
@@ -309,9 +329,19 @@ local function addStrobe(parent, name, x1, y1, z1, x2, y2, z2)
 	table.insert(fx.strobes, { part = s, light = l, on = false })
 end
 
+local function mix(c1, c2, a)
+	return Color3.new(c1.R + (c2.R - c1.R) * a, c1.G + (c2.G - c1.G) * a, c1.B + (c2.B - c1.B) * a)
+end
+
+local function scaleColor(c, k)
+	return Color3.new(c.R * k, c.G * k, c.B * k)
+end
+
+-- el color de letreros y neones oscila despacio entre dos tonos calidos/neutros (nada saturado)
+local TONE_A, TONE_B = Color3.fromRGB(246, 240, 228), Color3.fromRGB(238, 198, 140)
 local function cycleColor(t, phase)
 	local a = 0.5 + 0.5 * math.sin(t * 0.6 + phase)
-	return Color3.fromHSV(0.5 + 0.4 * a, 0.85, 1)
+	return mix(TONE_A, TONE_B, a)
 end
 
 -- cartel con SurfaceGui. (dx,dz) = hacia donde mira el cartel
@@ -460,44 +490,52 @@ end
 -- sofa: asiento mirando a -Z local, respaldo en +Z local
 local function sofa(parent, name, x, y, z, ry, w, color, glowColor)
 	local cf = CFrame.new(x, y, z) * CFrame.Angles(0, ry, 0)
-	P(parent, name .. "_Seat", cf * CFrame.new(0, 1, 0), Vector3.new(w, 2, 3), color, M.Fabric)
-	P(parent, name .. "_Back", cf * CFrame.new(0, 3, 1.25), Vector3.new(w, 4, 0.5), color, M.Fabric)
+	local cuero = { Reflectance = 0.2 }
+	P(parent, name .. "_Seat", cf * CFrame.new(0, 1, 0), Vector3.new(w, 2, 3), color, M.SmoothPlastic, cuero)
+	P(parent, name .. "_Back", cf * CFrame.new(0, 3, 1.25), Vector3.new(w, 4, 0.5), color, M.SmoothPlastic, cuero)
 	for s = -1, 1, 2 do
-		P(parent, name .. "_Arm" .. s, cf * CFrame.new(s * (w / 2 - 0.4), 1.9, 0), Vector3.new(0.8, 1.8, 3), color, M.Fabric)
+		P(parent, name .. "_Arm" .. s, cf * CFrame.new(s * (w / 2 - 0.4), 1.9, 0), Vector3.new(0.8, 1.8, 3), color, M.SmoothPlastic, cuero)
 	end
-	P(parent, name .. "_Glow", cf * CFrame.new(0, 0.2, 0), Vector3.new(w - 0.5, 0.2, 2.6), glowColor or C.magenta, M.Neon, DECOR)
+	-- zocalo cromado en lugar de luz de neon, y vivo dorado en el borde del respaldo
+	P(parent, name .. "_Plinth", cf * CFrame.new(0, 0.12, 0), Vector3.new(w - 0.3, 0.24, 2.7), C.chrome, M.Metal, { Reflectance = 0.6, CanCollide = false, CastShadow = false })
+	P(parent, name .. "_Piping", cf * CFrame.new(0, 5.04, 1.25), Vector3.new(w, 0.1, 0.56), C.gold, M.Metal, { Reflectance = 0.5, CanCollide = false, CastShadow = false })
 end
 
+-- mesa redonda: sobremesa de marmol blanco (baja) o lacado negro (alta), pie cromado
 local function roundTable(parent, name, x, y, z, radius, high, glowColor)
 	local h = high and 4.2 or 2.2
-	cyl(parent, name .. "_Leg", x, y + h / 2, z, h, 0.7, C.black, M.Metal)
-	cyl(parent, name .. "_Top", x, y + h + 0.15, z, 0.3, radius * 2, C.black, M.Marble)
-	cyl(parent, name .. "_Glow", x, y + 0.1, z, 0.2, radius * 1.2, glowColor or C.cyan, M.Neon, DECOR)
+	cyl(parent, name .. "_Leg", x, y + h / 2, z, h, 0.7, C.chrome, M.Metal, { Reflectance = 0.5 })
+	if high then
+		cyl(parent, name .. "_Top", x, y + h + 0.15, z, 0.3, radius * 2, C.black, M.SmoothPlastic, LACQUER)
+	else
+		cyl(parent, name .. "_Top", x, y + h + 0.15, z, 0.3, radius * 2, C.ivory, M.Marble, MARBLE_W)
+	end
+	cyl(parent, name .. "_Foot", x, y + 0.1, z, 0.2, radius * 1.2, C.black, M.SmoothPlastic, { CanCollide = false, CastShadow = false, Reflectance = 0.35 })
 end
 
 local function stool(parent, name, x, y, z)
-	cyl(parent, name .. "_Post", x, y + 1.2, z, 2.4, 0.5, C.black, M.Metal)
-	cyl(parent, name .. "_Seat", x, y + 2.6, z, 0.6, 2, C.velvet, M.Fabric)
+	cyl(parent, name .. "_Post", x, y + 1.2, z, 2.4, 0.5, C.chrome, M.Metal, { Reflectance = 0.5 })
+	cyl(parent, name .. "_Seat", x, y + 2.6, z, 0.6, 2, C.velvet, M.SmoothPlastic, LACQUER)
 end
 
 -- cabina de DJ mirando al sur (+Z). cx, y = suelo, z = mesa
 local function djDeck(parent, name, cx, y, z, glowColor)
-	B(parent, name .. "_Table", cx - 6, y, z - 1, cx + 6, y + 3.5, z + 1, C.black, M.SmoothPlastic)
+	B(parent, name .. "_Table", cx - 6, y, z - 1, cx + 6, y + 3.5, z + 1, C.black, M.SmoothPlastic, LACQUER)
 	glow(parent, name .. "_TableGlow", cx - 6, y + 1, z + 1, cx + 6, y + 1.4, z + 1.1, glowColor, { cycle = true })
 	for s = -1, 1, 2 do
 		cyl(parent, name .. "_Deck" .. s, cx + s * 3, y + 3.7, z, 0.4, 2.6, C.dark, M.Metal)
-		cyl(parent, name .. "_Disc" .. s, cx + s * 3, y + 3.95, z, 0.1, 2.2, C.cyan, M.Neon, DECOR)
+		cyl(parent, name .. "_Disc" .. s, cx + s * 3, y + 3.95, z, 0.1, 2.2, C.chrome, M.Metal, { CanCollide = false, CastShadow = false, Reflectance = 0.6 })
 	end
 	B(parent, name .. "_Mixer", cx - 1, y + 3.5, z - 0.8, cx + 1, y + 4, z + 0.8, C.dark, M.Metal)
 	B(parent, name .. "_Laptop", cx + 4.2, y + 3.5, z - 0.6, cx + 5.6, y + 3.7, z + 0.6, C.black, M.Metal)
 end
 
 local function speaker(parent, name, x, y, z, height, withSound)
-	local body = B(parent, name, x - 3, y, z - 3, x + 3, y + height, z + 3, C.black, M.SmoothPlastic)
+	local body = B(parent, name, x - 3, y, z - 3, x + 3, y + height, z + 3, C.black, M.SmoothPlastic, LACQUER)
 	local yy = y + 3
 	while yy < y + height - 1 do
 		cylZ(parent, name .. "_Woofer" .. yy, x, yy, z + 3, 0.4, 4, C.dark, M.Metal, { CanCollide = false })
-		cylZ(parent, name .. "_Ring" .. yy, x, yy, z + 3.1, 0.2, 4.6, C.magenta, M.Neon, DECOR)
+		cylZ(parent, name .. "_Ring" .. yy, x, yy, z + 3.1, 0.2, 4.6, C.gold, M.Metal, { CanCollide = false, CastShadow = false, Reflectance = 0.5 })
 		yy += 5
 	end
 	if withSound then
@@ -519,8 +557,8 @@ end
 
 -- barra recta. side = lado de los clientes ("E","W","S","N")
 local function barCounter(parent, name, x1, z1, x2, z2, y, side, glowColor)
-	B(parent, name .. "_Body", x1, y, z1, x2, y + 4, z2, C.dark, M.Concrete)
-	B(parent, name .. "_Top", x1 - 0.4, y + 4, z1 - 0.4, x2 + 0.4, y + 4.5, z2 + 0.4, C.black, M.Marble)
+	B(parent, name .. "_Body", x1, y, z1, x2, y + 4, z2, C.black, M.SmoothPlastic, LACQUER)
+	B(parent, name .. "_Top", x1 - 0.4, y + 4, z1 - 0.4, x2 + 0.4, y + 4.5, z2 + 0.4, C.ivory, M.Marble, MARBLE_W)
 	local g = glowColor or C.magenta
 	if side == "E" then
 		glow(parent, name .. "_Strip", x2, y + 0.6, z1, x2 + 0.15, y + 1.1, z2, g, { cycle = true, light = 14 })
@@ -537,7 +575,7 @@ end
 local function bottleShelf(parent, name, x, y, zFrom, zTo, depth, base)
 	for k = 0, 2 do
 		local sy = y + (base or 3) + k * 2.6
-		B(parent, name .. "_Board" .. k, x, sy, zFrom, x + depth, sy + 0.3, zTo, C.wood, M.Wood)
+		B(parent, name .. "_Board" .. k, x, sy, zFrom, x + depth, sy + 0.3, zTo, C.black, M.SmoothPlastic, LACQUER)
 		glow(parent, name .. "_Led" .. k, x, sy - 0.15, zFrom, x + depth, sy, zTo, BOTTLES[k + 1], { cycle = true })
 		local z = zFrom + 1
 		local n = 0
@@ -622,14 +660,14 @@ local function neonArt(parent, name, x1, z1, x2, z2, y, seed, count, color)
 			local len = 4 + math.floor(rnd() * 9)
 			local nx, nz = clampX(x + DX[dir + 1] * len), clampZ(z + DZ[dir + 1] * len)
 			if nx ~= x or nz ~= z then
-				seg(parent, name, Vector3.new(x, y, z), Vector3.new(nx, y, nz), 0.28, color, M.Neon)
+				seg(parent, name, Vector3.new(x, y, z), Vector3.new(nx, y, nz), 0.2, C.gold, M.Metal, { Reflectance = 0.5 })
 				x, z = nx, nz
 			end
 			if step % 3 == 0 then
 				local sx = (rnd() < 0.5) and 1 or -1
 				local dx2, dz2 = clampX(x + sx * 5), clampZ(z + 5)
 				if dx2 ~= x or dz2 ~= z then
-					seg(parent, name, Vector3.new(x, y, z), Vector3.new(dx2, y, dz2), 0.28, color, M.Neon)
+					seg(parent, name, Vector3.new(x, y, z), Vector3.new(dx2, y, dz2), 0.2, C.gold, M.Metal, { Reflectance = 0.5 })
 					x, z = dx2, dz2
 				end
 			end
@@ -706,7 +744,7 @@ local function stairRail(parent, name, xs, baseY, zStart, dir)
 		B(parent, name .. "_Post" .. i, xs - 0.1, top, zc - 0.1, xs + 0.1, top + 3, zc + 0.1, C.dark, M.Metal, DECOR)
 		local tip = Vector3.new(xs, top + 3, zc)
 		if prev then
-			seg(parent, name .. "_Rail" .. i, prev, tip, 0.16, C.purple, M.Neon)
+			seg(parent, name .. "_Rail" .. i, prev, tip, 0.16, C.chrome, M.Metal, { Reflectance = 0.5 })
 		end
 		prev = tip
 	end
@@ -716,11 +754,11 @@ end
 -- Cristaleria del bar: vasos de cristal con base, borde, liquido, hielo y pajilla
 ------------------------------------------------------------------------
 local LIQUIDS = {
-	orange = Color3.fromRGB(255, 130, 30), -- calabaza
-	purple = Color3.fromRGB(150, 60, 255), -- pocion
-	green = Color3.fromRGB(110, 235, 70), -- slime
-	pink = Color3.fromRGB(255, 60, 150), -- sangre rosa
-	cyan = Color3.fromRGB(0, 220, 255), -- hielo azul
+	orange = Color3.fromRGB(226, 146, 58), -- ambar
+	purple = Color3.fromRGB(120, 40, 70), -- burdeos
+	green = Color3.fromRGB(168, 200, 150), -- menta
+	pink = Color3.fromRGB(232, 184, 170), -- rosado
+	cyan = Color3.fromRGB(200, 224, 240), -- hielo
 }
 local GLASS_TINT = Color3.fromRGB(205, 232, 255)
 local ICE_COLOR = Color3.fromRGB(225, 245, 255)
@@ -1567,10 +1605,10 @@ local function buildWorld()
 	B(pr, "PerimeterWall_S", -130, -4, WORLD.z2, 130, 10, 208, WALLC, M.Concrete)
 	B(pr, "PerimeterWall_W", -130, -4, WORLD.z1, WORLD.x1, 10, WORLD.z2, WALLC, M.Concrete)
 	B(pr, "PerimeterWall_E", WORLD.x2, -4, WORLD.z1, 130, 10, WORLD.z2, WALLC, M.Concrete)
-	glow(pr, "PerimeterLed_N", WORLD.x1, 8.6, WORLD.z1, WORLD.x2, 8.9, WORLD.z1 + 0.15, C.purple)
-	glow(pr, "PerimeterLed_S", WORLD.x1, 8.6, WORLD.z2 - 0.15, WORLD.x2, 8.9, WORLD.z2, C.purple)
-	glow(pr, "PerimeterLed_W", WORLD.x1, 8.6, WORLD.z1, WORLD.x1 + 0.15, 8.9, WORLD.z2, C.purple)
-	glow(pr, "PerimeterLed_E", WORLD.x2 - 0.15, 8.6, WORLD.z1, WORLD.x2, 8.9, WORLD.z2, C.purple)
+	glow(pr, "PerimeterLed_N", WORLD.x1, 8.6, WORLD.z1, WORLD.x2, 8.9, WORLD.z1 + 0.15, C.warmWhite)
+	glow(pr, "PerimeterLed_S", WORLD.x1, 8.6, WORLD.z2 - 0.15, WORLD.x2, 8.9, WORLD.z2, C.warmWhite)
+	glow(pr, "PerimeterLed_W", WORLD.x1, 8.6, WORLD.z1, WORLD.x1 + 0.15, 8.9, WORLD.z2, C.warmWhite)
+	glow(pr, "PerimeterLed_E", WORLD.x2 - 0.15, 8.6, WORLD.z1, WORLD.x2, 8.9, WORLD.z2, C.warmWhite)
 	for i = 0, 7 do
 		local x = -112 + i * 32
 		B(pr, "PillarN", x - 1.2, 0, WORLD.z1, x + 1.2, 11, WORLD.z1 + 2.4, C.dark, M.Concrete)
@@ -1626,29 +1664,29 @@ local function buildShell()
 	glassWall(f2, "Glass_S", -80, 78, 80, 80, y2)
 
 	-- arco neon de la puerta (violeta/cian de la marca) y detalles naranja de Halloween
-	glow(e, "Door_L", -10.6, 0, 80, -10, 12.6, 80.5, VIOLET, { cycle = true, light = 26 })
-	glow(e, "Door_R", 10, 0, 80, 10.6, 12.6, 80.5, VIOLET, { cycle = true, light = 26, phase = 1 })
+	glow(e, "Door_L", -10.6, 0, 80, -10, 12.6, 80.5, C.warmWhite, { cycle = true, light = 26 })
+	glow(e, "Door_R", 10, 0, 80, 10.6, 12.6, 80.5, C.warmWhite, { cycle = true, light = 26, phase = 1 })
 	glow(e, "Door_Top", -10.6, 12, 80, 10.6, 12.6, 80.5, C.cyan, { cycle = true })
 	glow(e, "DoorAccentL", -10, 0, 80.2, -9.85, 12, 80.5, C.orange)
 	glow(e, "DoorAccentR", 9.85, 0, 80.2, 10, 12, 80.5, C.orange)
 	glow(e, "DoorAccentT", -10, 11.85, 80.2, 10, 12, 80.5, C.orange)
 	-- cantos verticales de neon en las 4 esquinas
 	for i, c in { { -80.3, -80.3 }, { 80.3, -80.3 }, { -80.3, 80.3 }, { 80.3, 80.3 } } do
-		glow(e, "Corner" .. i, c[1] - 0.2, 0, c[2] - 0.2, c[1] + 0.2, FLOOR_Y[3], c[2] + 0.2, VIOLET, { cycle = true, phase = i })
+		glow(e, "Corner" .. i, c[1] - 0.2, 0, c[2] - 0.2, c[1] + 0.2, FLOOR_Y[3], c[2] + 0.2, C.warmWhite, { cycle = true, phase = i })
 	end
 
 	-- letrero de la entrada: placa oscura con texto cromado MAYA CLUB y marco de neon
 	sign(e, "MainSign", 0, 18.5, 80.3, 56, 9, 0, 1, "MAYA CLUB", SILVER, false, "chrome", CONFIG.LogoImageId)
-	glow(e, "MainSignFrameT", -28.4, 23, 80.2, 28.4, 23.4, 80.5, VIOLET, { cycle = true })
+	glow(e, "MainSignFrameT", -28.4, 23, 80.2, 28.4, 23.4, 80.5, C.warmWhite, { cycle = true })
 	glow(e, "MainSignFrameB", -28.4, 13.6, 80.2, 28.4, 14, 80.5, C.cyan, { cycle = true })
-	glow(e, "MainSignFrameL", -28.4, 13.6, 80.2, -28, 23.4, 80.5, VIOLET, { cycle = true })
-	glow(e, "MainSignFrameR", 28, 13.6, 80.2, 28.4, 23.4, 80.5, VIOLET, { cycle = true })
+	glow(e, "MainSignFrameL", -28.4, 13.6, 80.2, -28, 23.4, 80.5, C.warmWhite, { cycle = true })
+	glow(e, "MainSignFrameR", 28, 13.6, 80.2, 28.4, 23.4, 80.5, C.warmWhite, { cycle = true })
 	-- fachada: panel oscuro con el monograma grande sobre el ventanal del piso 2
 	B(e, "FacadeBanner", -18, 26.5, 80, 18, 46, 80.5, NAVY, M.Metal, DECOR)
-	glow(e, "FacadeBannerT", -18, 45.8, 80.2, 18, 46, 80.6, VIOLET, { cycle = true, phase = 2 })
+	glow(e, "FacadeBannerT", -18, 45.8, 80.2, 18, 46, 80.6, C.warmWhite, { cycle = true, phase = 2 })
 	glow(e, "FacadeBannerB", -18, 26.5, 80.2, 18, 26.7, 80.6, C.cyan, { cycle = true })
-	glow(e, "FacadeBannerL", -18, 26.5, 80.2, -17.8, 46, 80.6, VIOLET, { cycle = true, phase = 1 })
-	glow(e, "FacadeBannerR", 17.8, 26.5, 80.2, 18, 46, 80.6, VIOLET, { cycle = true, phase = 1 })
+	glow(e, "FacadeBannerL", -18, 26.5, 80.2, -17.8, 46, 80.6, C.warmWhite, { cycle = true, phase = 1 })
+	glow(e, "FacadeBannerR", 17.8, 26.5, 80.2, 18, 46, 80.6, C.warmWhite, { cycle = true, phase = 1 })
 	wallMonogram(e, "FacadeMono", 0, 28, 80.5, 0, 1, 0.44)
 
 	-- plaza de entrada: cola con postes dorados y cuerdas, macetas y calabazas de bienvenida
@@ -1713,8 +1751,8 @@ end
 local function buildFloor1()
 	local f = folders.Floor1
 	local D, St = LAYOUT.dance, LAYOUT.stage
-	B(f, "Floor1_Slab", -80, -3, -80, 80, 0, 80, C.floor, M.Marble, { Reflectance = 0.12 })
-	B(f, "Carpet", -6, 0, 10, 6, 0.1, 78, C.velvet, M.Fabric, DECOR)
+	B(f, "Floor1_Slab", -80, -3, -80, 80, 0, 80, C.floor, M.Marble, { Reflectance = 0.24 })
+	B(f, "Carpet", -6, 0, 10, 6, 0.1, 78, C.ivory, M.Fabric, DECOR)
 
 	-- PISTA LED: base oscura reflectante, juntas de 0.5, paneles de neon de brillo moderado en
 	-- damero (la mitad mas tenue), cristal ahumado encima y bisel metalico con hilo de neon
@@ -1724,7 +1762,7 @@ local function buildFloor1()
 	for ix = 0, n - 1 do
 		for iz = 0, n - 1 do
 			local x1, z1 = D.x1 + ix * cell, D.z1 + iz * cell
-			local tile = B(f, "Tile", x1 + 0.25, 0.1, z1 + 0.25, x1 + cell - 0.25, 0.22, z1 + cell - 0.25, Color3.fromRGB(16, 92, 104), M.Neon, { CastShadow = false })
+			local tile = B(f, "Tile", x1 + 0.25, 0.1, z1 + 0.25, x1 + cell - 0.25, 0.22, z1 + cell - 0.25, Color3.fromRGB(70, 56, 36), M.Neon, { CastShadow = false })
 			table.insert(fx.tiles, { part = tile, ix = ix, iz = iz, n = n, dim = ((ix + iz) % 2 == 0) and 1 or 0.6 })
 		end
 	end
@@ -1740,20 +1778,20 @@ local function buildFloor1()
 	end
 	glow(f, "DanceLedN", D.x1 - 0.5, 0.1, D.z1 - 0.5, D.x2 + 0.5, 0.25, D.z1 - 0.35, C.cyan, { cycle = true })
 	glow(f, "DanceLedS", D.x1 - 0.5, 0.1, D.z2 + 0.35, D.x2 + 0.5, 0.25, D.z2 + 0.5, C.cyan, { cycle = true })
-	glow(f, "DanceLedW", D.x1 - 0.5, 0.1, D.z1 - 0.35, D.x1 - 0.35, 0.25, D.z2 + 0.35, VIOLET, { cycle = true })
-	glow(f, "DanceLedE", D.x2 + 0.35, 0.1, D.z1 - 0.35, D.x2 + 0.5, 0.25, D.z2 + 0.35, VIOLET, { cycle = true })
+	glow(f, "DanceLedW", D.x1 - 0.5, 0.1, D.z1 - 0.35, D.x1 - 0.35, 0.25, D.z2 + 0.35, C.warmWhite, { cycle = true })
+	glow(f, "DanceLedE", D.x2 + 0.35, 0.1, D.z1 - 0.35, D.x2 + 0.5, 0.25, D.z2 + 0.35, C.warmWhite, { cycle = true })
 
 	-- ESCENARIO DJ (norte) con 2 escalones de acceso y pantalla LED
 	B(f, "Stage", St.x1, 0, St.z1, St.x2, St.top, St.z2, C.black, M.SmoothPlastic)
 	B(f, "StageStepB", -8, 0, -64, 8, 2.2, -62, C.black, M.SmoothPlastic)
 	B(f, "StageStepA", -8, 0, -62, 8, 1.1, -60.5, C.black, M.SmoothPlastic)
-	glow(f, "StageTrim", St.x1, 0.8, -64.15, St.x2, 1.3, -64, VIOLET, { cycle = true, light = 22 })
+	glow(f, "StageTrim", St.x1, 0.8, -64.15, St.x2, 1.3, -64, C.warmWhite, { cycle = true, light = 22 })
 	djDeck(f, "DJ1", 0, St.top, -72, C.cyan)
 	sign(f, "DJFront", 0, St.top + 1.75, -70.75, 11, 2.4, 0, 1, "MAYA", SILVER, false, "chrome")
 	local _, screen = sign(f, "DJScreen", 0, 14, -77.75, 44, 14, 0, 1, "MAYA", C.cyan, false)
 	table.insert(fx.screens, screen)
-	glow(f, "ScreenFrameT", -22.4, 21, -77.7, 22.4, 21.5, -77.2, VIOLET, { cycle = true })
-	glow(f, "ScreenFrameB", -22.4, 6.5, -77.7, 22.4, 7, -77.2, VIOLET, { cycle = true })
+	glow(f, "ScreenFrameT", -22.4, 21, -77.7, 22.4, 21.5, -77.2, C.warmWhite, { cycle = true })
+	glow(f, "ScreenFrameB", -22.4, 6.5, -77.7, 22.4, 7, -77.2, C.warmWhite, { cycle = true })
 	wallMonogram(f, "StageMonoL", -36, 4.5, -78, 0, 1, 0.4)
 	wallMonogram(f, "StageMonoR", 36, 4.5, -78, 0, 1, 0.4)
 	speaker(f, "Speaker_L", -50, 0, -72, 12, true)
@@ -1769,7 +1807,7 @@ local function buildFloor1()
 		B(f, "StageHanger" .. i, x - 0.1, 21.2, -69.1, x + 0.1, FLOOR_H, -68.9, C.dark, M.Metal, DECOR)
 	end
 	for i, x in { -24, -16, -8, 0, 8, 16, 24 } do
-		glow(f, "StageSpot" .. i, x - 0.6, 19, -69.6, x + 0.6, 20, -68.4, VIOLET, {
+		glow(f, "StageSpot" .. i, x - 0.6, 19, -69.6, x + 0.6, 20, -68.4, C.warmWhite, {
 			cycle = true,
 			phase = i,
 			light = 36,
@@ -1783,20 +1821,42 @@ local function buildFloor1()
 		addStrobe(f, "Strobe" .. i, x - 1.5, 19.2, -69.4, x + 1.5, 20, -68.6)
 	end
 
-	-- bola de espejos colgada del techo del atrio (gira lento)
+	-- BOLA DE ESPEJOS: nucleo oscuro mate (las juntas se ven negras) cubierto por ~175 facetas
+	-- cuadradas de espejo (Metal + Reflectance 1) en anillos de latitud, alternando dos tonos de plata
+	-- para que cada faceta se lea; casquete y varilla cromados y dos focos que la iluminan.
 	local mc = Vector3.new(0, 36, -24)
-	B(f, "MirrorRod", mc.X - 0.15, mc.Y + 3, mc.Z - 0.15, mc.X + 0.15, FLOOR_Y[3] - 2, mc.Z + 0.15, C.dark, M.Metal, DECOR)
-	local core = ball(f, "MirrorCore", mc.X, mc.Y, mc.Z, 6, C.dark, M.Metal, { Reflectance = 0.6 })
-	addLight(core, C.white, 40, false, 2)
-	for _, ring in { { -60, 6 }, { -30, 10 }, { 0, 12 }, { 30, 10 }, { 60, 6 } } do
-		local lat = math.rad(ring[1])
-		for k = 0, ring[2] - 1 do
-			local lon = k / ring[2] * math.pi * 2
+	local BALL_R = 3.9
+	B(f, "MirrorRod", mc.X - 0.12, mc.Y + 3, mc.Z - 0.12, mc.X + 0.12, FLOOR_Y[3] - 2, mc.Z + 0.12, C.chrome, M.Metal, { CanCollide = false, CastShadow = false, Reflectance = 0.6 })
+	cyl(f, "MirrorMotor", mc.X, mc.Y + 4.6, mc.Z, 1.2, 1.6, C.dark, M.Metal, { CanCollide = false, CastShadow = false, Reflectance = 0.4 })
+	local core = ball(f, "MirrorCore", mc.X, mc.Y, mc.Z, 7.0, Color3.fromRGB(18, 18, 22), M.SmoothPlastic, { CanCollide = false, Reflectance = 0.1 })
+	addLight(core, Color3.fromRGB(255, 244, 230), 40, false, 2)
+	local SILVERS = { Color3.fromRGB(246, 248, 252), Color3.fromRGB(196, 204, 220) }
+	local fi = 0
+	for ri, latDeg in { -75, -60, -45, -30, -15, 0, 15, 30, 45, 60, 75 } do
+		local lat = math.rad(latDeg)
+		local ringN = math.max(5, math.floor(2 * math.pi * BALL_R * math.cos(lat) / 1.05 + 0.5))
+		for k = 0, ringN - 1 do
+			fi += 1
+			local lon = k / ringN * math.pi * 2 + (ri % 2 == 0 and 0 or math.pi / ringN)
 			local dir = Vector3.new(math.cos(lat) * math.cos(lon), math.sin(lat), math.cos(lat) * math.sin(lon))
-			local local_cf = CFrame.lookAt(dir * 3, dir * 4)
-			local facet = P(f, "MirrorFacet", CFrame.new(mc) * local_cf, Vector3.new(1.1, 1.1, 0.15), C.white, M.Metal, { Reflectance = 1, CanCollide = false, CastShadow = false })
+			local local_cf = CFrame.lookAt(dir * (BALL_R - 0.5), dir * BALL_R)
+			local facet = P(f, "MirrorFacet", CFrame.new(mc) * local_cf, Vector3.new(0.92, 0.92, 0.12), SILVERS[fi % 2 + 1], M.Metal, { Reflectance = 1, CanCollide = false, CastShadow = false })
 			table.insert(fx.mirror, { part = facet, center = mc, offset = local_cf })
 		end
+	end
+	-- dos focos de acento que bañan la bola
+	for _, sx in { -1, 1 } do
+		local canPos = Vector3.new(sx * 11, 41, mc.Z)
+		B(f, "MirrorSpotRod", canPos.X - 0.1, canPos.Y, canPos.Z - 0.1, canPos.X + 0.1, FLOOR_Y[3] - 2, canPos.Z + 0.1, C.dark, M.Metal, DECOR)
+		local can = P(f, "MirrorSpotCan", CFrame.lookAt(canPos, mc), Vector3.new(1.2, 1.2, 1.8), C.chrome, M.Metal, { CanCollide = false, CastShadow = false, Reflectance = 0.5 })
+		local l = Instance.new("SpotLight")
+		l.Face = Enum.NormalId.Front
+		l.Angle = 40
+		l.Range = 30
+		l.Brightness = 3 * LOOK.LightIntensity
+		l.Color = Color3.fromRGB(255, 240, 220)
+		l.Parent = can
+		lightCount += 1
 	end
 
 	-- truss del atrio con 6 lasers translucidos (3 por lado)
@@ -1871,14 +1931,14 @@ local function buildFloor1()
 	landing(f, "Landing1In", S1.landIn[1], S1.landIn[2], S1.landIn[3], S1.landIn[4], 0)
 
 	-- techo del hall: neon rosa, focos empotrados, tiras de luz y listones acusticos
-	neonArt(f, "CeilArt1", -76, 24, 76, 76, 21.8, 7, 7, C.magenta)
+	neonArt(f, "CeilArt1", -76, 24, 76, 76, 21.8, 7, 3, C.gold)
 	for i, x in { -60, -30, 0, 30, 60 } do
 		for j, z in { 30, 50, 70 } do
 			downlight(f, "Downlight", x, 21.9, z)
 		end
 	end
 	for i, x in { -22, 22 } do
-		glow(f, "HallStrip" .. i, x - 0.3, 21.6, 22, x + 0.3, 22, 76, VIOLET, { cycle = true, phase = i, light = 24 })
+		glow(f, "HallStrip" .. i, x - 0.3, 21.6, 22, x + 0.3, 22, 76, C.warmWhite, { cycle = true, phase = i, light = 24 })
 	end
 	glow(f, "StageCeil", -32, 21.6, -75, 32, 22, -74.4, C.cyan, { cycle = true })
 	slats(f, "SlatNL", "x", -78, -76, -46, 1, 21, 1)
@@ -1913,7 +1973,7 @@ local function buildFloor1()
 	cobweb(f, "WebB", Vector3.new(77.95, 21.95, 76), Vector3.new(0, 0, -1), Vector3.new(0, -1, 0), 6)
 	cobweb(f, "WebC", Vector3.new(-77.95, 21.95, -76), Vector3.new(0, 0, 1), Vector3.new(0, -1, 0), 6)
 
-	fillGrid(f, "Fill1", 8, VIOLET, 60, 1.0)
+	fillGrid(f, "Fill1", 8, C.warmWhite, 60, 1.0)
 	sign(f, "Floor1Label", 77.75, 16, 40, 10, 3, -1, 0, "NIVEL 1", C.cyan, true)
 end
 
@@ -1997,14 +2057,14 @@ local function buildFloor2()
 	end
 
 	-- techo: neon rosa, focos empotrados y tiras (parte baja de la losa del piso 3)
-	neonArt(f, "CeilArt2", -76, 24, 76, 76, y + 21.8, 11, 7, C.magenta)
+	neonArt(f, "CeilArt2", -76, 24, 76, 76, y + 21.8, 11, 3, C.gold)
 	for _, x in { -60, -30, 0, 30, 60 } do
 		for _, z in { 30, 50, 70 } do
 			downlight(f, "Downlight2", x, y + 21.9, z)
 		end
 	end
 	for i, z in { -64, 22 } do
-		glow(f, "CeilStrip" .. i, -76, y + 21.6, z, 76, y + 22, z + 0.6, VIOLET, { cycle = true, phase = i })
+		glow(f, "CeilStrip" .. i, -76, y + 21.6, z, 76, y + 22, z + 0.6, C.warmWhite, { cycle = true, phase = i })
 	end
 
 	-- Halloween VIP: telaranas en las esquinas del techo y murcielagos en la pared norte
@@ -2019,16 +2079,16 @@ local function buildFloor2()
 	-- escalera P2 -> P3 (oeste): 10 de ancho, sube al sur. Descanso de entrada al norte (10 x 14).
 	stairs(folders.Stairs, "Stairs2", S2.x1, S2.x2, S2.baseY, S2.zStart, S2.dir)
 	stairRail(folders.Stairs, "Stairs2Rail", S2.x2 - 0.15, S2.baseY, S2.zStart, S2.dir)
-	fillGrid(f, "Fill2", y + 8, C.magenta, 60, 0.9)
+	fillGrid(f, "Fill2", y + 8, C.warmWhite, 60, 0.9)
 end
 
 ------------------------------------------------------------------------
 -- PISO 3 (rooftop): escenario DJ con monograma, barra, piscina, fire pits y loungers
 ------------------------------------------------------------------------
 local function lounger(parent, name, x, y, z)
-	B(parent, name .. "_Base", x - 1.5, y, z - 3.5, x + 1.5, y + 1.2, z + 3.5, Color3.fromRGB(235, 235, 245), M.Fabric)
-	P(parent, name .. "_Back", CFrame.new(x, y + 1.7, z + 3) * CFrame.Angles(math.rad(-30), 0, 0), Vector3.new(3, 0.6, 2), Color3.fromRGB(235, 235, 245), M.Fabric)
-	glow(parent, name .. "_Glow", x - 1.4, y, z - 3.4, x + 1.4, y + 0.15, z + 3.4, C.cyan, { cycle = true })
+	B(parent, name .. "_Base", x - 1.5, y, z - 3.5, x + 1.5, y + 1.2, z + 3.5, C.ivory, M.SmoothPlastic, LACQUER)
+	P(parent, name .. "_Back", CFrame.new(x, y + 1.7, z + 3) * CFrame.Angles(math.rad(-30), 0, 0), Vector3.new(3, 0.6, 2), C.ivory, M.SmoothPlastic, LACQUER)
+	B(parent, name .. "_Glow", x - 1.4, y, z - 3.4, x + 1.4, y + 0.15, z + 3.4, C.black, M.Metal, DECOR)
 end
 
 local function firePit(parent, name, x, y, z)
@@ -2060,7 +2120,7 @@ local function buildFloor3()
 	landing(f, "Landing2Out", S2.landOut[1], S2.landOut[2], S2.landOut[3], S2.landOut[4], y)
 
 	-- piscina poco profunda (fondo neon + agua sin colision), 40 x 38
-	B(f, "PoolFloor", pool[1], y - 2, pool[2], pool[3], y - 1, pool[4], Color3.fromRGB(0, 120, 200), M.Neon)
+	B(f, "PoolFloor", pool[1], y - 2, pool[2], pool[3], y - 1, pool[4], Color3.fromRGB(70, 140, 160), M.SmoothPlastic, { Reflectance = 0.2 })
 	B(f, "PoolWater", pool[1], y - 1, pool[2], pool[3], y - 0.2, pool[4], C.cyan, M.Glass, { Transparency = 0.5, CanCollide = false })
 	glow(f, "PoolRim_N", pool[1], y, pool[2] - 0.2, pool[3], y + 0.15, pool[2], C.cyan, { cycle = true, light = 22 })
 	glow(f, "PoolRim_S", pool[1], y, pool[4], pool[3], y + 0.15, pool[4] + 0.2, C.cyan, { cycle = true })
@@ -2084,7 +2144,7 @@ local function buildFloor3()
 	B(f, "ArchPillarR", 31, y, -70.5, 32, y + 15, -69.5, C.dark, M.Metal)
 	B(f, "ArchBeam", -32, y + 14, -70.5, 32, y + 15, -69.5, C.dark, M.Metal)
 	for i, x in { -16, -8, 0, 8, 16 } do
-		glow(f, "RoofSpot" .. i, x - 0.6, y + 13.1, -70.6, x + 0.6, y + 14, -69.4, VIOLET, {
+		glow(f, "RoofSpot" .. i, x - 0.6, y + 13.1, -70.6, x + 0.6, y + 14, -69.4, C.warmWhite, {
 			cycle = true,
 			phase = i,
 			light = 34,
@@ -2105,7 +2165,7 @@ local function buildFloor3()
 	for k = 0, 8 do
 		stool(f, "RoofStool" .. k, 58, y, -46 + k * 5)
 	end
-	glow(f, "RoofRackLed", 72, y, -50, 72.15, y + 10, -10, VIOLET, { cycle = true, light = 22 })
+	glow(f, "RoofRackLed", 72, y, -50, 72.15, y + 10, -10, C.warmWhite, { cycle = true, light = 22 })
 	local rx, ry = 63.5, y + 4.5
 	cauldron(f, "RoofCauldron", rx, ry, -48.2)
 	local rk = { "highball", "martini", "tumbler", "highball", "martini" }
@@ -2146,7 +2206,7 @@ local function buildFloor3()
 		B(f, "Planter" .. i, x - 1.5, y, 75, x + 1.5, y + 2.2, 78, C.dark, M.Concrete)
 		ball(f, "PlanterLeaf" .. i, x, y + 4.2, 76.5, 4, C.green, M.Grass)
 	end
-	fillGrid(f, "Fill3", y + 7, Color3.fromRGB(120, 110, 255), 60, 1.0)
+	fillGrid(f, "Fill3", y + 7, Color3.fromRGB(235, 225, 240), 60, 1.0)
 end
 
 ------------------------------------------------------------------------
@@ -2251,10 +2311,10 @@ local function buildLighting()
 	local function boosted(r, g, b)
 		return Color3.fromRGB(math.min(255, math.floor(r * amb + 0.5)), math.min(255, math.floor(g * amb + 0.5)), math.min(255, math.floor(b * amb + 0.5)))
 	end
-	Lighting.Ambient = boosted(46, 32, 78)
-	Lighting.OutdoorAmbient = boosted(40, 30, 72)
+	Lighting.Ambient = boosted(54, 48, 52)
+	Lighting.OutdoorAmbient = boosted(48, 44, 54)
 	Lighting.ExposureCompensation = LOOK.Exposure
-	Lighting.EnvironmentDiffuseScale = 0.4
+	Lighting.EnvironmentDiffuseScale = 0.5
 	Lighting.EnvironmentSpecularScale = LOOK.Reflections
 	Lighting.ShadowSoftness = LOOK.ShadowSoftness
 	Lighting.GlobalShadows = true
@@ -2277,9 +2337,9 @@ local function buildLighting()
 
 	local cc = Instance.new("ColorCorrectionEffect")
 	cc.Name = "MayaColor"
-	cc.Contrast = 0.12
-	cc.Saturation = 0.22
-	cc.TintColor = Color3.fromRGB(235, 225, 255)
+	cc.Contrast = 0.1
+	cc.Saturation = -0.08
+	cc.TintColor = Color3.fromRGB(255, 243, 230)
 	cc.Parent = Lighting
 
 	local atm = Lighting:FindFirstChildOfClass("Atmosphere")
@@ -2287,10 +2347,10 @@ local function buildLighting()
 		atm = Instance.new("Atmosphere")
 	end
 	atm.Name = "MayaAtmosphere"
-	atm.Density = 0.18
+	atm.Density = 0.16
 	atm.Offset = 0.2
-	atm.Color = Color3.fromRGB(120, 70, 190)
-	atm.Decay = Color3.fromRGB(60, 30, 110)
+	atm.Color = Color3.fromRGB(150, 128, 120)
+	atm.Decay = Color3.fromRGB(78, 62, 58)
 	atm.Glare = 0.1
 	atm.Haze = 1.2
 	atm.Parent = Lighting
@@ -2311,24 +2371,25 @@ local function updateMirror(t)
 	if #fx.mirror == 0 then
 		return
 	end
-	local spin = CFrame.new(fx.mirror[1].center) * CFrame.Angles(0, t * 0.5, 0)
+	local spin = CFrame.new(fx.mirror[1].center) * CFrame.Angles(0, t * 0.4, 0)
 	for _, m in fx.mirror do
 		m.part.CFrame = spin * m.offset
 	end
 end
 
+local TILE_A, TILE_B = Color3.fromRGB(255, 214, 160), Color3.fromRGB(205, 224, 245) -- champan -> hielo
 local SCREEN_TEXTS = { "MAYA", "CLUB", "MAYA CLUB", "LET'S GO", "MAYA" }
 
 local GLOW_STEPS = 16
 local glowColors = {}
 for i = 0, GLOW_STEPS do
-	glowColors[i] = Color3.fromHSV(0.5 + 0.4 * i / GLOW_STEPS, 0.85, 1)
+	glowColors[i] = scaleColor(mix(Color3.fromRGB(236, 196, 138), Color3.fromRGB(214, 230, 242), i / GLOW_STEPS), 0.72)
 end
 
 local LAMP_STEPS = 8
 local lampColors = {}
 for i = 0, LAMP_STEPS do
-	lampColors[i] = Color3.fromHSV(0.72 + 0.2 * i / LAMP_STEPS, 0.7, 1)
+	lampColors[i] = mix(Color3.fromRGB(255, 226, 190), Color3.fromRGB(240, 230, 246), i / LAMP_STEPS)
 end
 
 local function startAnimations()
@@ -2381,14 +2442,14 @@ local function startAnimations()
 				local dx, dz = tile.ix - (tile.n - 1) / 2, tile.iz - (tile.n - 1) / 2
 				local d = math.sqrt(dx * dx + dz * dz)
 				local wave = 0.5 + 0.5 * math.sin(d * 0.75 - t * 2.4)
-				local hue = 0.5 + 0.3 * (0.5 + 0.5 * math.sin(t * 0.3 + d * 0.15))
-				local v = (0.22 + 0.58 * wave) * tile.dim * LOOK.TileBrightness
-				local hq = math.floor(hue * 24 + 0.5)
-				local vq = math.floor(v * 10 + 0.5)
-				local key = hq * 16 + vq
+				local tone = 0.5 + 0.5 * math.sin(t * 0.3 + d * 0.15)
+				local v = (0.16 + 0.5 * wave) * tile.dim * LOOK.TileBrightness
+				local tq = math.floor(tone * 6 + 0.5)
+				local vq = math.floor(v * 12 + 0.5)
+				local key = tq * 16 + vq
 				if tile.key ~= key then
 					tile.key = key
-					tile.part.Color = Color3.fromHSV(hq / 24, 0.9, vq / 10)
+					tile.part.Color = scaleColor(mix(TILE_A, TILE_B, tq / 6), vq / 12)
 				end
 			end
 		end
