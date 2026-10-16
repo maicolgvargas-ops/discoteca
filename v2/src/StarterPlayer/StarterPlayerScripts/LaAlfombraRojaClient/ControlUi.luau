@@ -16,7 +16,7 @@ local ControlUi = {}
 
 local player = Players.LocalPlayer
 local make, button, paint = Ui.make, Ui.button, Ui.paint
-local GOLD, BLACK = Ui.GOLD, Ui.BLACK, Ui.PANEL
+local GOLD, BLACK = Ui.GOLD, Ui.BLACK
 
 local S, club, control, music, request, effects
 local st = { gui = nil, open = false, widgets = {}, lastSend = 0, tab = "luces", frames = {}, tabButtons = {} }

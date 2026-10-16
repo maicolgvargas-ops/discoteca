@@ -2701,4 +2701,9 @@ updateBeams(0)
 return ctx
 end
 
-return { run = run }
+local Build = { run = run, last = nil }
+Build.run = function(deps)
+	Build.last = run(deps)
+	return Build.last
+end
+return Build
