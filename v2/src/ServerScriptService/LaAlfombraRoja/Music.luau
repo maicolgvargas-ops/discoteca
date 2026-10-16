@@ -18,6 +18,7 @@ local Music = {}
 local tracks = {} -- lista blanca validada: { Id = "rbxassetid://n", Title, Artist }
 local state = { index = 0, status = "none", volume = Config.Music.Volume }
 local sound, folder
+local endedConn
 local sounds = {} -- un Sound por altavoz; todos suenan a la vez (sound = el principal)
 
 local function setAttr(k, v)
@@ -148,6 +149,10 @@ function Music.init(club)
 			warn(string.format("[Music] pista %d ignorada: necesita Id valido y Title", i))
 		end
 	end
+	if endedConn then
+		endedConn:Disconnect()
+		endedConn = nil
+	end
 	sound = nil
 	sounds = {}
 	for _, d in club:GetDescendants() do
@@ -161,7 +166,7 @@ function Music.init(club)
 	sound = sounds[1]
 	applyVolume()
 	if sound then
-		sound.Ended:Connect(function()
+		endedConn = sound.Ended:Connect(function()
 			if Config.Music.AutoNext and state.status == "playing" and #tracks > 0 then
 				Music.handle("MusicNext")
 			end
