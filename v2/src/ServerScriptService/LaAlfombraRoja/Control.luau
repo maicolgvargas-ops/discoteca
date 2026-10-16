@@ -26,20 +26,31 @@ Control.DEFAULT = {
 	Speed = 0.6, MirrorSpin = true, MirrorSpeed = 0.5,
 	Strobe = false, -- opcional y APAGADO de inicio (luces intermitentes)
 	Palette = "Champan",
+	Follow = false, -- focos rojos de seguimiento (apagados de inicio)
+	FollowIntensity = 1, FollowSpeed = 0.8,
+	Dark = 0, -- 0..1: cuanto baja la luz ambiental (el cliente la aplica; las luces de seguridad no bajan)
+}
+-- lo que TODO preset restablece antes de aplicar sus propios valores (asi un preset no deja zonas apagadas del anterior)
+Control.PRESET_BASE = {
+	ZPista = 1, ZVip = 1, ZRooftop = 1, ZAlfombra = 1, OnPista = true, OnVip = true, OnRooftop = true, OnAlfombra = true,
+	Follow = false, FollowIntensity = 1, FollowSpeed = 0.8, Dark = 0,
 }
 Control.PRESETS = {
 	Elegante = { Master = 1, Lasers = false, Shafts = true, SpotMove = false, Pulse = true, Speed = 0.6, MirrorSpin = true, MirrorSpeed = 0.5, Strobe = false, Palette = "Champan" },
 	Fiesta = { Master = 1.1, Lasers = true, Shafts = true, SpotMove = true, Pulse = true, Speed = 1.1, MirrorSpin = true, MirrorSpeed = 1, Strobe = false, Palette = "Rosa" },
 	Discoteca = { Master = 1.2, Lasers = true, Shafts = true, SpotMove = true, Pulse = true, Speed = 1.6, MirrorSpin = true, MirrorSpeed = 1.5, Strobe = false, Palette = "Multicolor" },
+	-- Discoteca oscura: poca luz ambiental, protagonismo a los focos rojos; alfombra/entrada a tope, sin estrobo
+	DiscotecaOscura = { Master = 0.9, ZPista = 0.45, ZVip = 0.6, ZRooftop = 0.6, ZAlfombra = 1, Lasers = false, Shafts = true, SpotMove = false, Pulse = true, Speed = 0.8, MirrorSpin = true, MirrorSpeed = 0.6, Strobe = false, Palette = "Champan", Follow = true, FollowIntensity = 1.1, FollowSpeed = 0.8, Dark = 0.7 },
 	SinEfectos = { Lasers = false, Shafts = false, SpotMove = false, Pulse = false, MirrorSpin = false, Strobe = false, Speed = 0.6, Palette = "Champan" },
 }
 Control.NUM = {
 	Master = { 0, 1.5 }, ZPista = { 0, 1.5 }, ZVip = { 0, 1.5 }, ZRooftop = { 0, 1.5 }, ZAlfombra = { 0, 1.5 },
 	Speed = { 0.25, 2 }, MirrorSpeed = { 0, 2 },
+	FollowIntensity = { 0, 1.5 }, FollowSpeed = { 0.25, 2 }, Dark = { 0, 1 },
 }
-Control.BOOL = { "OnPista", "OnVip", "OnRooftop", "OnAlfombra", "Lasers", "Shafts", "SpotMove", "Pulse", "MirrorSpin", "Strobe" }
+Control.BOOL = { "OnPista", "OnVip", "OnRooftop", "OnAlfombra", "Lasers", "Shafts", "SpotMove", "Pulse", "MirrorSpin", "Strobe", "Follow" }
 Control.PALETTES = { Champan = true, Hielo = true, Rosa = true, Violeta = true, Rojo = true, Multicolor = true }
-Control.SAFE = { "^Fill", "HallStrip", "^Door_", "Stair", "Landing", "CarpetFill", "LightDeskFill" }
+Control.SAFE = { "^Fill", "^Bar[EW]PendantBulb", "HallStrip", "^Door_", "Stair", "Landing", "CarpetFill", "LightDeskFill" }
 Control.op = { player = nil, last = 0 } -- operador actual
 Control.buckets = {}
 Control.clock = 0
@@ -125,7 +136,7 @@ function Control.tag()
 			add(d, "AR_Spot", { phase = spots * 0.9 })
 		elseif (d:IsA("PointLight") or d:IsA("SpotLight")) and not flameSet[d] then
 			local pn = d.Parent.Name
-			if not (string.match(pn, "^Strobe%d+$") or string.match(pn, "^RoofStrobe%d+$")) then
+			if not (string.match(pn, "^Strobe%d+$") or string.match(pn, "^RoofStrobe%d+$") or string.match(pn, "^FollowHead")) then
 				local safe = false
 				for _, pat in Control.SAFE do
 					if string.find(pn, pat) then
@@ -233,6 +244,9 @@ function Control.apply(action, value)
 		local p = type(value) == "string" and Control.PRESETS[value]
 		if not p then
 			return false
+		end
+		for k, v in Control.PRESET_BASE do
+			Control.set(k, v)
 		end
 		for k, v in p do
 			Control.set(k, v)

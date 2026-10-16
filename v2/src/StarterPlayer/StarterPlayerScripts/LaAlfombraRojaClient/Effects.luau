@@ -17,7 +17,7 @@ function Effects.init(club, control)
 	-- Estado compartido
 	------------------------------------------------------------------------
 	local S = {}
-	local KEYS = { "Preset", "Master", "ZPista", "ZVip", "ZRooftop", "ZAlfombra", "OnPista", "OnVip", "OnRooftop", "OnAlfombra", "Lasers", "Shafts", "SpotMove", "Pulse", "Speed", "MirrorSpin", "MirrorSpeed", "Strobe", "Palette", "Operator", "OperatorName" }
+	local KEYS = { "Preset", "Master", "ZPista", "ZVip", "ZRooftop", "ZAlfombra", "OnPista", "OnVip", "OnRooftop", "OnAlfombra", "Lasers", "Shafts", "SpotMove", "Pulse", "Speed", "MirrorSpin", "MirrorSpeed", "Strobe", "Palette", "Operator", "OperatorName", "Follow", "FollowIntensity", "FollowSpeed", "Dark" }
 	local function readState()
 		for _, k in KEYS do
 			S[k] = control:GetAttribute(k)
@@ -481,6 +481,10 @@ function Effects.step(dt)
 		updateVisualizer(dt)
 	end
 	updatePlate(dt)
+end
+
+function Effects.isNear()
+	return near
 end
 
 function Effects.deskParts()

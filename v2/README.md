@@ -1,6 +1,6 @@
-# LA ALFOMBRA ROJA · v2
+# LA ALFOMBRA ROJA · v2.1
 
-Versión **nueva** (no sustituye a la v1 de la raíz del repositorio). Conserva el nombre y logo de corona dorada, texto
+Versión **nueva** (no sustituye a la v1 de la raíz del repositorio ni al `LaAlfombraRoja_v2.rbxlx` anterior, que se conserva tal cual). Conserva el nombre y logo de corona dorada, texto
 dorado/rojo, alfombra roja, estilo luxury, muebles blancos y negros brillantes, la bola de espejos corregida
 (`MirrorCore` diámetro 7, facetas a 3,56 con reflectancia 0,8) y la cabina de luces. `PhotocallLogo`/`PhotocallMini`
 siguen en x = -76,9 y el `ClubSpawn` es invisible (`Transparency = 1`).
@@ -9,11 +9,29 @@ siguen en x = -76,9 y el `ClubSpawn` es invisible (`Transparency = 1`).
 > **Nada se ha abierto ni probado en Roblox Studio.** Véase la [matriz de pruebas](#matriz-de-pruebas).
 > No se ha publicado nada ni hecho merge.
 
+## Novedades de la 2.1.0
+- **Discoteca más oscura + focos rojos móviles.** 2 focos rojos (perfil Equilibrado) o 4 (Alta) colgados del truss del atrio.
+  Cada uno tiene luz roja (`SpotLight` sin sombras, rango ≤ 60) y un haz visible (`Beam`). Los mueve **solo el cliente**:
+  siguen con suavidad a quien está **dentro de la pista**, se reparten entre las personas (cambian de persona cada 5 s),
+  **nunca apuntan fuera de la pista** (rectángulo de `LAYOUT.dance` con margen) y, sin nadie, barren la pista despacio.
+  Están **apagados por defecto**; se activan en la cabina: pestaña *Luces → Focos rojos y ambiente* (interruptor,
+  intensidad 0–150 %, velocidad ×0,25–×2, oscuridad 0–100 %) o con el preset **Discoteca oscura**.
+- **Preset «Discoteca oscura»** (`Control.PRESETS.DiscotecaOscura`): oscuridad 0,7, pista 45 %, VIP/rooftop 60 %, alfombra/entrada
+  100 %, paleta dorada (los focos son lo único rojo), estrobo **apagado**, láseres apagados. Cualquier preset restablece primero
+  zonas, focos y oscuridad (`PRESET_BASE`), así que al volver a «Elegante» todo vuelve a su sitio.
+- **Visibilidad conservada:** la oscuridad solo baja `Lighting.Ambient/OutdoorAmbient/ExposureCompensation` **en tu pantalla**
+  y nunca por debajo del 45 % del valor original; escaleras, entrada (zona alfombra), pasillos y las lámparas de las barras tienen
+  luz mínima de seguridad (45 %); logo, photocall, esfera y muebles no se tocan.
+- **Rendimiento:** apagados = cero trabajo; encendidos, 20 actualizaciones/s (30 en Alta) solo si estás cerca del club, y se escribe
+  una propiedad solo cuando cambia. Sin sombras nuevas. **No** se baja ninguna calidad ni resolución automáticamente.
+- **Persistencia de producción:** bloqueo de sesión con *lease* (ver más abajo), recibos idempotentes guardados **en la misma
+  escritura** que el inventario, y liberación segura al salir/cerrar.
+
 ## Contenido
 
 | Archivo | Para qué |
 |---|---|
-| `LaAlfombraRoja_v2.rbxlx` | Place **listo para abrir**: todos los Script, LocalScript y ModuleScript ya colocados. |
+| `LaAlfombraRoja_v2.1.0.rbxlx` | Place **listo para abrir** (versión actual): todos los Script, LocalScript y ModuleScript ya colocados. `LaAlfombraRoja_v2.rbxlx` es la entrega anterior (2.0.0). |
 | `src/` | Fuentes modulares `.luau` (estructura Rojo). Son idénticos a lo que lleva el `.rbxlx`. |
 | `default.project.json` | Proyecto Rojo opcional (`rojo build -o LaAlfombraRoja_v2.rbxlx`). |
 | `tools/make_place.py` | Regenera el `.rbxlx` desde `src/`. `tools/check_files.py` comprueba que coinciden. |
@@ -76,7 +94,8 @@ por el artículo que elige; la compra se concede en `ProcessReceipt` (un único 
 - Las cifras `DraftRobux` (400 botella / 50 shot) son un **borrador interno**: nunca se muestran como precio real.
   El precio que ve el jugador es el que devuelve `MarketplaceService:GetProductInfoAsync` del producto enlazado.
 - `ProcessReceipt` valida el recibo, concede de forma **atómica e idempotente** (por `PurchaseId`) y **solo confirma
-  (`PurchaseGranted`) si el guardado ha ido bien**; si falla devuelve `NotProcessedYet` y Roblox lo reintenta.
+  (`PurchaseGranted`) si el guardado ha ido bien y el servidor tiene el alquiler de la sesión**; si falla (o el registro está en
+  otro servidor) devuelve `NotProcessedYet` y Roblox lo reintenta, también al reconectar.
   `PromptProductPurchaseFinished` jamás concede nada.
 - **Modo de prueba en Studio (gratis, separado):** `Config.Purchases.StudioTestMode = true`. Solo actúa si
   `RunService:IsStudio()`; en un servidor real no hace nada aunque se deje en `true`. **Está en `false` por defecto**
@@ -109,11 +128,23 @@ La credencial del club es un elemento de juego; **no verifica edad** ni sustituy
   usa `Quality = "Equilibrado"`, baja `Npcs.MaxAnimated`/`Dance.MaxVisible` o desactiva láseres/haces desde la cabina.
 - No hay paneles ni comandos de benchmark.
 
-### Límite conocido de los datos
-El inventario usa `DataStore:UpdateAsync` (idempotente por `PurchaseId`, escritura inmediata en compras y canjes,
-autoguardado, guardado al salir y en `BindToClose`; si la carga falla la sesión queda en **solo lectura** y nunca
-sobrescribe). **No hay bloqueo de sesión entre servidores**: si un jugador está en dos servidores a la vez, el último
-guardado de datos no críticos (equipar/beber) puede pisar al otro. Para producción seria considera ProfileService/ProfileStore.
+### Persistencia y bloqueo de sesión (lease)
+El inventario vive en un único registro por jugador (`DataStore`, clave `u<UserId>`) que incluye inventario, vales, **recibos**
+(`PurchaseId`) y un **alquiler**: `lock = { o = <token de sesión>, e = <caducidad> }`.
+- **Cargar** = `UpdateAsync` que toma el alquiler solo si está libre, caducado o ya es nuestro. Si otro servidor lo tiene vivo
+  se espera (`LockWaitSeconds`, reintento cada `LockRetrySeconds`) y después la sesión queda en **solo lectura** («inventario en
+  uso en otro servidor»), reintentando cada 15 s. **Nunca se sobrescribe** lo guardado.
+- **Escribir** (compra, canje, autoguardado, renovación): cada `UpdateAsync` comprueba *dentro de la misma escritura atómica* que
+  el alquiler sigue siendo nuestro. Si no lo es, no escribe nada, la sesión pasa a solo lectura (se descartan solo los cambios no
+  guardados) y se recarga lo más reciente cuando el otro servidor suelta.
+- **Renovación** cada `RenewSeconds` (40 s) con un alquiler de `LeaseSeconds` (120 s): si un servidor cae, el alquiler caduca solo.
+- **Recibos**: el `PurchaseId` se registra en el mismo registro y en la misma escritura que los vales/artículos, así que o se
+  guardan ambos o ninguno. Un reintento (reconexión, otro servidor, `NotProcessedYet`) no duplica ni pierde nada.
+- **Liberar**: al salir se guarda y se pone `lock = nil` en una sola escritura; en `BindToClose` se liberan todos en paralelo. Si
+  la liberación falla, el alquiler caduca solo en ≤ 120 s y el jugador espera/queda bloqueado temporalmente, sin pérdida.
+- **Límites honestos:** `UpdateAsync` es atómico por clave en Roblox, pero aquí solo se ha **simulado** (un hilo, un DataStore
+  simulado; «otro servidor» se emula editando el registro). Depende de relojes razonablemente sincronizados (margen de 120 s).
+  No hay expulsión del jugador bloqueado (decisión de diseño). No se ha probado con servidores reales ni en Studio.
 
 ## Matriz de pruebas
 **Simulado** = ejecutado con Luau contra una API de Roblox simulada (`tests/mock_roblox.luau`); **no** es Studio.
@@ -123,6 +154,7 @@ guardado de datos no críticos (equipar/beber) puede pisar al otro. Para producc
 |---|---|---|
 | Catálogo y modelos 3D (botellas/copas: piezas, líquido, etiquetas, contraste) | ✅ | ❌ |
 | Inventario: carga/guardado, vales, canje, equipar, sorbos, fallos de DataStore, solo lectura | ✅ | ❌ |
+| **Alquiler de sesión**: toma/renovación/liberación, otro servidor con alquiler vivo o caducado, alquiler perdido a mitad, fallos al salir, cierre del servidor, recibos atómicos e idempotentes | ✅ 32 (simulado, un hilo) | ❌ (servidores reales) |
 | Compras: `ProcessReceipt`, idempotencia, no confirmar si falla el guardado, producto desconocido, recibos mal formados, modo Studio | ✅ | ❌ |
 | Música: lista blanca, índices inválidos, volumen, siguiente/anterior, fin de pista, estado vacío | ✅ | ❌ |
 | Operador único, permisos y límites de la cabina | ✅ | ❌ |
@@ -133,10 +165,11 @@ guardado de datos no críticos (equipar/beber) puede pisar al otro. Para producc
 | UI cliente: tienda, vista previa, mochila, cabina, guardias, HUD, límites | ✅ | ❌ (aspecto visual, tamaño en móvil) |
 | Mundo: navegación (cuerpos 1/2,5/3,5), pasillos, escaleras, luz, piezas flotantes, estilo | ✅ 156 + 156 (Equilibrado + Alta) | ❌ |
 | Láseres dentro del atrio, estrobo ≤ 3/s | ✅ | ❌ |
-| Pruebas de sabotaje (13 mutaciones, todas detectadas) | ✅ | n/a |
+| **Focos rojos de seguimiento**: apagados por defecto, límites de pista, suavidad, reparto entre personas, intensidad/velocidad, cero trabajo apagados o lejos, preset y su restablecimiento, oscuridad con mínimo 45 % | ✅ | ❌ (aspecto real del haz, intensidad, sensación de oscuridad) |
+| Pruebas de sabotaje (23 mutaciones, todas detectadas) | ✅ | n/a |
 | Ejecución real, rendimiento/FPS, colisiones, red, multijugador | ❌ | ❌ |
 
-Totales actuales: servidor 126, cliente 54, mundo 156 (×2 perfiles), archivos 10 comprobaciones.
+Totales actuales (simulador): servidor 133, persistencia 32, cliente 73, mundo 161 (×2 perfiles), archivos 12 comprobaciones, 23 sabotajes detectados.
 
 ### Puntos que **no** se han podido verificar y conviene mirar primero en Studio
 1. Que `Seat:Sit(humanoid)` siente al jugador y que los asientos quedan bien colocados.
@@ -146,11 +179,15 @@ Totales actuales: servidor 126, cliente 54, mundo 156 (×2 perfiles), archivos 1
 5. Grupos de colisión de la barrera de entrada (jugadores y su personaje al reaparecer).
 6. Configuración de `TextChatService` (ventana, barra de chat, burbujas) en tu versión de chat.
 7. DataStore en Studio (requiere *Enable Studio Access to API Services*).
-8. Rendimiento: ~5,9 mil partes y 144 luces (Equilibrado) / ~6,2 mil y 188 (Alta), sin medir.
+8. Rendimiento: ~5,9 mil partes y 146 luces (Equilibrado) / ~6,2 mil y 192 (Alta), sin medir.
+9. Aspecto de los focos rojos: ángulo (26°), brillo, anchura del haz y cuánto se ve la «niebla» del haz; ajusta `Config.Follow`.
+10. Que `Lighting.Ambient` local se vea bien con `Technology = Future` y que el nivel «Discoteca oscura» siga siendo legible en móvil.
+11. Concurrencia real del DataStore (dos servidores a la vez, rejoin rápido, `BindToClose` real).
 
 ## Ejecutar las pruebas (opcional, necesita el intérprete `luau`)
 ```
 python3 tools/assemble_tests.py tests/t_server.luau /tmp/s.luau && luau /tmp/s.luau
+python3 tools/assemble_tests.py tests/t_persist.luau /tmp/p.luau && luau /tmp/p.luau
 python3 tools/assemble_tests.py tests/t_client.luau /tmp/c.luau && luau /tmp/c.luau
 python3 tools/assemble_tests.py tests/t_world.luau  /tmp/w.luau && luau /tmp/w.luau
 python3 tools/assemble_tests.py tests/t_world.luau  /tmp/wa.luau --set 'Quality="Alta"' && luau /tmp/wa.luau

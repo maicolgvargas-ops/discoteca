@@ -10,7 +10,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import tree  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-PLACE = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "LaAlfombraRoja_v2.rbxlx"
+_ver = re.search(r'Version\s*=\s*"([^"]+)"', (ROOT / "src/ReplicatedStorage/AlfombraShared/Config.luau").read_text(encoding="utf-8")).group(1)
+PLACE = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / f"LaAlfombraRoja_v{_ver}.rbxlx"
 fails = 0
 
 
@@ -69,4 +70,7 @@ check("ningun asset id ni ProductId inventado (rbxassetid con numero / ProductId
 check("no se toca UserGameSettings ni RenderSettings", "UserGameSettings" not in all_src and "RenderSettings" not in all_src)
 check("sin paneles ni comandos de benchmark", not re.search(r"(?i)benchmark", all_src))
 check("StudioTestMode desactivado por defecto", re.search(r"StudioTestMode\s*=\s*false", got["/ReplicatedStorage/AlfombraShared/Config"][1]) is not None)
+cfg = got["/ReplicatedStorage/AlfombraShared/Config"][1]
+check("focos de seguimiento y alquiler de sesion configurados", all(k in cfg for k in ("Follow = {", "LeaseSeconds", "RenewSeconds", "LockWaitSeconds")))
+check("los focos y el estrobo estan apagados por defecto (Control.DEFAULT)", re.search(r"Follow = false,", got["/ServerScriptService/LaAlfombraRoja/Control"][1]) is not None and re.search(r"Strobe = false,", got["/ServerScriptService/LaAlfombraRoja/Control"][1]) is not None)
 sys.exit(1 if fails else 0)

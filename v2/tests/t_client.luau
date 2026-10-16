@@ -342,6 +342,166 @@ do -- ===================================================== efectos locales: las
 	run(0.5, 0.05)
 end
 
+do -- ===================================================== focos rojos de seguimiento y preset Discoteca oscura
+	local Lighting = game:GetService("Lighting")
+	local FL = require(clientScript.FollowLights)
+	local D = require(Shared.Config)
+	local ctl = club.Control
+	check("por defecto: focos APAGADOS, estrobo apagado, sin oscuridad extra", ctl:GetAttribute("Follow") == false and ctl:GetAttribute("Strobe") == false and ctl:GetAttribute("Dark") == 0)
+	local heads = require(game:GetService("CollectionService") and Shared.Config) and game:GetService("CollectionService"):GetTagged("AR_Follow")
+	check("hay 2 focos rojos en el perfil Equilibrado, apagados (luz y haz)", #heads == 2 and FL.count() == 2 and (function()
+		for _, h in heads do
+			local l = h:FindFirstChildOfClass("SpotLight")
+			local b = h:FindFirstChildOfClass("Beam")
+			if not l or l.Enabled ~= false or not b or b.Enabled ~= false or l.Shadows ~= false then return false end
+		end
+		return true
+	end)())
+	-- abrir la cabina de luces y elegir el preset
+	local lp = find("LightPrompt")
+	me.Character.HumanoidRootPart.CFrame = CFrame.new(lp.Parent.CFrame.Position + Vector3.new(0, 0, 5))
+	run(0.3, 0.1)
+	lp.Triggered:_fire(me)
+	run(0.3, 0.05)
+	local g = gui("LaAlfombraRojaControl")
+	check("la cabina tiene boton del preset 'Discoteca oscura', interruptor y reguladores de focos y oscuridad", btn(g, "Preset_DiscotecaOscura") ~= nil and btn(g, "T_Follow") ~= nil and btn(g, "R_FollowIntensity") ~= nil and btn(g, "R_FollowSpeed") ~= nil and btn(g, "R_Dark") ~= nil)
+	local ambBase = Lighting.Ambient
+	click(btn(g, "Preset_DiscotecaOscura"))
+	run(0.3, 0.1)
+	check("preset Discoteca oscura en el servidor: focos ON, ambiente 0.7, zona alfombra/entrada a tope, estrobo apagado", ctl:GetAttribute("Preset") == "DiscotecaOscura" and ctl:GetAttribute("Follow") == true and ctl:GetAttribute("Dark") == 0.7 and ctl:GetAttribute("ZAlfombra") == 1 and ctl:GetAttribute("Strobe") == false and ctl:GetAttribute("ZPista") == 0.45)
+	-- el ambiente baja con transicion, sin pasar nunca del 45 % de los valores originales
+	run(3, 0.05)
+	local amb = Lighting.Ambient
+	check("ambiente oscurecido (menos luz) pero nunca por debajo del 45 % del original", amb.R < ambBase.R and amb.R >= ambBase.R * 0.45 - 1e-6 and amb.G >= ambBase.G * 0.45 - 1e-6, amb.R .. " vs " .. ambBase.R)
+	-- los focos se encienden con fundido
+	workspace.CurrentCamera.CFrame = CFrame.new(0, 30, 100)
+	run(3, 0.05)
+	check("focos encendidos: luz roja y haz visibles (sin sombras, rango <= 60)", (function()
+		for _, h in heads do
+			local l = h:FindFirstChildOfClass("SpotLight")
+			local b = h:FindFirstChildOfClass("Beam")
+			if not (l.Enabled and b.Enabled and l.Shadows == false and l.Range <= 60 and l.Color.R > 0.9 and l.Color.G < 0.2 and l.Brightness > 3) then return false end
+		end
+		return true
+	end)())
+	-- seguimiento: yo bailo dentro de la pista
+	me.Character.HumanoidRootPart.CFrame = CFrame.new(12, 3, -30)
+	run(4, 0.05)
+	local aims = FL.aims()
+	check("sin otros jugadores ambos focos siguen a la unica persona en la pista", #aims == 2 and (aims[1].aim - Vector3.new(12, 0.5, -30)).Magnitude < 1.5 and (aims[2].aim - Vector3.new(12, 0.5, -30)).Magnitude < 1.5, tostring(aims[1] and aims[1].aim))
+	-- suavidad: el punto no salta
+	me.Character.HumanoidRootPart.CFrame = CFrame.new(-28, 3, 4)
+	local prev = FL.aims()[1].aim
+	local maxJump = 0
+	for _ = 1, 100 do
+		fireHeartbeat(1 / 60)
+		local a = FL.aims()[1].aim
+		maxJump = math.max(maxJump, (a - prev).Magnitude)
+		prev = a
+	end
+	check("el seguimiento es suave: nunca salta mas de MaxSpeed*velocidad por actualizacion", maxJump <= Config.Follow.MaxSpeed * 0.8 / Config.Follow.UpdateHz * 1.2 + 0.01, maxJump)
+	-- limites: yo fuera de la pista no atrae el haz; el punto nunca sale de la pista
+	me.Character.HumanoidRootPart.CFrame = CFrame.new(70, 3, 40)
+	local outside = 0
+	for _ = 1, 400 do
+		fireHeartbeat(1 / 30)
+		for _, a in FL.aims() do
+			local ap = a.aim
+			if ap.X < -30 - 1e-6 or ap.X > 30 + 1e-6 or ap.Z < -54 - 1e-6 or ap.Z > 6 + 1e-6 then outside += 1 end
+		end
+	end
+	check("el haz NUNCA sale de la pista (con jugador fuera: barrido suave dentro de limites)", outside == 0, outside)
+	-- en el borde (dentro del margen pero fuera del rectangulo del haz): el punto se queda en el limite
+	me.Character.HumanoidRootPart.CFrame = CFrame.new(31.4, 3, -20)
+	run(4, 0.05)
+	local edge = FL.aims()
+	check("jugador en el borde de la pista: el haz se queda en el limite (x <= 30), no se sale", edge[1].aim.X <= 30 + 1e-6 and edge[1].aim.X > 28 and edge[2].aim.X <= 30 + 1e-6, edge[1].aim.X)
+	-- dos personas: cada foco, una persona distinta
+	local other = __makePlayer("Baila", 909)
+	__spawnCharacter(other, Vector3.new(-15, 3, -10), "R15")
+	__players.PlayerAdded:_fire(other)
+	me.Character.HumanoidRootPart.CFrame = CFrame.new(15, 3, -40)
+	local d1, d2, a2 = 99, 99, nil
+	for _ = 1, 400 do
+		fireHeartbeat(1 / 30)
+		a2 = FL.aims()
+		d1 = math.min((a2[1].aim - Vector3.new(15, 0.5, -40)).Magnitude, (a2[2].aim - Vector3.new(15, 0.5, -40)).Magnitude)
+		d2 = math.min((a2[1].aim - Vector3.new(-15, 0.5, -10)).Magnitude, (a2[2].aim - Vector3.new(-15, 0.5, -10)).Magnitude)
+		if d1 < 2 and d2 < 2 then break end
+	end
+	check("con dos personas en la pista los focos se reparten entre ambas (uno en cada una)", d1 < 2 and d2 < 2 and (a2[1].aim - a2[2].aim).Magnitude > 20, d1 .. "/" .. d2)
+	__removePlayer(other)
+	-- actualizaciones optimizadas: escrituras de propiedades por segundo con focos encendidos vs apagados
+	local function writesPerSec()
+		__countWrites = true
+		__writes = 0
+		run(5, 1 / 60)
+		__countWrites = false
+		return __writes / 5
+	end
+	me.Character.HumanoidRootPart.CFrame = CFrame.new(-10, 3, -30)
+	run(2, 0.05)
+	local wOn = writesPerSec()
+	ctl:SetAttribute("Follow", false)
+	run(3, 0.05)
+	local wOff = writesPerSec()
+	ctl:SetAttribute("Follow", true)
+	run(3, 0.05)
+	print(string.format("        escrituras/s cliente completo: con focos %.0f, sin focos %.0f (coste de los focos %.0f)", wOn, wOff, wOn - wOff))
+	check("los focos cuestan < 150 escrituras de propiedades por segundo en total (cabezas, puntos, luces)", wOn - wOff < 150, wOn - wOff)
+	-- intensidad 0 apaga; velocidad
+	ctl:SetAttribute("FollowIntensity", 0)
+	run(3, 0.05)
+	check("intensidad 0 apaga luz y haz", (function()
+		for _, h in heads do
+			if h:FindFirstChildOfClass("SpotLight").Enabled or h:FindFirstChildOfClass("Beam").Enabled then return false end
+		end
+		return true
+	end)())
+	ctl:SetAttribute("FollowIntensity", 1.5)
+	run(2, 0.05)
+	check("intensidad 1.5 = 150 % del brillo base", math.abs(heads[1]:FindFirstChildOfClass("SpotLight").Brightness - heads[1]:GetAttribute("b") * 1.5) < 0.2)
+	ctl:SetAttribute("FollowIntensity", 1)
+	local function chase(speed)
+		ctl:SetAttribute("FollowSpeed", speed)
+		me.Character.HumanoidRootPart.CFrame = CFrame.new(-25, 3, -50)
+		run(3, 0.05)
+		me.Character.HumanoidRootPart.CFrame = CFrame.new(25, 3, 0)
+		local t = 0
+		while (FL.aims()[1].aim - Vector3.new(25, 0.5, 0)).Magnitude > 3 and t < 20 do fireHeartbeat(1 / 30) t += 1 / 30 end
+		return t
+	end
+	local tSlow, tFast = chase(0.25), chase(2)
+	check("la velocidad de la cabina se nota: x2.0 llega antes que x0.25", tFast < tSlow, tFast .. " vs " .. tSlow)
+	-- apagar: cero trabajo
+	ctl:SetAttribute("Follow", false)
+	run(3, 0.05)
+	local before = heads[1].CFrame
+	me.Character.HumanoidRootPart.CFrame = CFrame.new(0, 3, -20)
+	run(2, 0.05)
+	check("apagados: luz y haz fuera y la cabeza ya no se mueve (cero trabajo)", not heads[1]:FindFirstChildOfClass("SpotLight").Enabled and heads[1].CFrame == before)
+	-- volver a Elegante restablece zonas, focos y oscuridad (reabro la cabina junto a la mesa: me aleje y se solto)
+	me.Character.HumanoidRootPart.CFrame = CFrame.new(lp.Parent.CFrame.Position + Vector3.new(0, 0, 5))
+	run(0.3, 0.1)
+	lp.Triggered:_fire(me)
+	run(0.5, 0.1)
+	click(btn(g, "Preset_Elegante"))
+	run(0.3, 0.1)
+	check("el preset Elegante restablece zonas, focos y oscuridad del preset anterior", ctl:GetAttribute("ZPista") == 1 and ctl:GetAttribute("Follow") == false and ctl:GetAttribute("Dark") == 0)
+	run(3, 0.05)
+	check("...y el ambiente vuelve a su valor original", math.abs(Lighting.Ambient.R - ambBase.R) < 0.002)
+	-- los focos tambien con camara lejos: sin trabajo
+	ctl:SetAttribute("Follow", true)
+	workspace.CurrentCamera.CFrame = CFrame.new(0, 30, 900)
+	local c0 = heads[1].CFrame
+	run(2, 0.05)
+	check("con la camara lejos del club los focos no gastan CPU (no se mueven)", heads[1].CFrame == c0)
+	ctl:SetAttribute("Follow", false)
+	workspace.CurrentCamera.CFrame = CFrame.new(0, 30, 100)
+	click(btn(g, "Close"))
+	run(0.5, 0.1)
+end
+
 do -- ===================================================== reglas de seguridad / rendimiento
 	local function srcOf(m) return rawget(m, "_module") and "" or "" end
 	check("el cliente no crea chat propio: usa TextChatService (CanUserChatAsync consultado)", true)

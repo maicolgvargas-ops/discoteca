@@ -27,6 +27,7 @@ local PROFILES = {
 		haze = false, -- sin humo de escenario ni de calderos (particulas)
 		dof = false, -- sin profundidad de campo
 		bloomScale = 0.75,
+		followers = 2, -- focos rojos de seguimiento
 		pruneMinor = true, -- quita las luces decorativas menores (velas, calabazas, llamas, tiras de barra)
 		fallbackRates = { fast = 0.1, tiles = 0.5, glows = 0.5, mirror = 0.25 },
 	},
@@ -39,6 +40,7 @@ local PROFILES = {
 		haze = true,
 		dof = true,
 		bloomScale = 1,
+		followers = 4,
 		pruneMinor = false,
 		fallbackRates = { fast = 0.05, tiles = 0.25, glows = 0.25, mirror = 0.15 },
 	},

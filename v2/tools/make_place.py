@@ -4,8 +4,9 @@
   ServerScriptService/LaAlfombraRoja            (Script) + modulos hijos (Build, Extras, Inventory, ...)
   StarterPlayer/StarterPlayerScripts/LaAlfombraRojaClient (LocalScript) + modulos hijos
 Los sources son identicos a los .luau de v2/src (lo comprueba tools/check_files.py).
-Uso: make_place.py [salida.rbxlx]"""
+Uso: make_place.py [salida.rbxlx]  (por defecto LaAlfombraRoja_v<Config.Version>.rbxlx)"""
 import pathlib
+import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -13,7 +14,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import tree  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-OUT = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "LaAlfombraRoja_v2.rbxlx"
+_ver = re.search(r'Version\s*=\s*"([^"]+)"', (ROOT / "src/ReplicatedStorage/AlfombraShared/Config.luau").read_text(encoding="utf-8")).group(1)
+OUT = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / f"LaAlfombraRoja_v{_ver}.rbxlx"
 
 HEADER = (
     '<?xml version="1.0" encoding="utf-8"?>\n'

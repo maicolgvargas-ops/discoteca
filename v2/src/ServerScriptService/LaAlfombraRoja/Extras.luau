@@ -344,9 +344,82 @@ end
 ------------------------------------------------------------------------
 -- punto de entrada que Build llama al terminar su construccion
 ------------------------------------------------------------------------
+-- Focos rojos de seguimiento colgados del truss del atrio (x = +-36, y = 41.3). Aqui solo la GEOMETRIA, la luz y
+-- el haz (apagados): el cliente los orienta. Cada uno: Model "FollowLightN" con FollowBase (soporte),
+-- FollowHead (cabeza que gira, con SpotLight + Beam), FollowTarget (punto iluminado, invisible).
+function Extras.followLights(ctx)
+	local n = ctx.PROFILE.followers or 0
+	local F = Config.Follow
+	if n <= 0 or not F.Enabled then
+		return 0
+	end
+	local C, M, B = ctx.C, ctx.M, ctx.B
+	local D = ctx.LAYOUT.dance
+	local slots = { { -36, -38 }, { 36, -18 }, { 36, -38 }, { -36, -18 } } -- primero en diagonal
+	local color = Color3.fromRGB(F.Color[1], F.Color[2], F.Color[3])
+	local alta = ctx.PROFILE_NAME == "Alta"
+	for i = 1, math.min(n, #slots) do
+		local x, z = slots[i][1], slots[i][2]
+		local model = Instance.new("Model")
+		model.Name = "FollowLight" .. i
+		model.Parent = ctx.folders.Floor1
+		B(model, "FollowBase", x - 0.5, 40.1, z - 0.5, x + 0.5, 40.8, z + 0.5, C.dark, M.Metal, { CanCollide = false, CastShadow = false })
+		local head = B(model, "FollowHead", x - 0.7, 38.7, z - 0.7, x + 0.7, 40.1, z + 0.7, C.black, M.SmoothPlastic, { CanCollide = false, CastShadow = false })
+		model.PrimaryPart = head
+		local target = B(model, "FollowTarget", x - 0.1, 0.3, z - 0.1, x + 0.1, 0.5, z + 0.1, C.black, M.SmoothPlastic, { CanCollide = false, CastShadow = false, Transparency = 1 })
+		target.Position = Vector3.new((D.x1 + D.x2) / 2, 0.5, (D.z1 + D.z2) / 2)
+		local a0 = Instance.new("Attachment")
+		a0.Name = "FollowOrigin"
+		a0.Position = Vector3.new(0, 0, -0.75)
+		a0.Parent = head
+		local a1 = Instance.new("Attachment")
+		a1.Name = "FollowAim"
+		a1.Parent = target
+		local light = ctx.addLight(head, color, F.Range, true, F.Brightness, false) -- sin sombras
+		light.Face = Enum.NormalId.Front
+		light.Angle = F.Angle
+		light.Enabled = false
+		head:SetAttribute("b", light.Brightness)
+		local layers = alta and 2 or 1
+		for k = 1, layers do
+			local beam = Instance.new("Beam")
+			beam.Name = "FollowBeam" .. k
+			beam.Attachment0 = a0
+			beam.Attachment1 = a1
+			beam.Color = ColorSequence.new(color)
+			local t = (k == 1) and 0.8 or 0.9
+			beam.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(0.06, t),
+				NumberSequenceKeypoint.new(0.75, math.min(1, t + 0.06)),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			beam.Width0 = (k == 1) and 0.18 or 0.5
+			beam.Width1 = (k == 1) and 2.6 or 6
+			beam.LightEmission = 0.8
+			beam.LightInfluence = 0
+			beam.FaceCamera = true
+			beam.Segments = 1
+			beam.Enabled = false
+			beam.Parent = head
+		end
+		-- limites del haz (pista con margen) y datos para el cliente
+		head:SetAttribute("idx", i)
+		head:SetAttribute("phase", i * 2.1)
+		head:SetAttribute("x1", D.x1 + F.Inset)
+		head:SetAttribute("z1", D.z1 + F.Inset)
+		head:SetAttribute("x2", D.x2 - F.Inset)
+		head:SetAttribute("z2", D.z2 - F.Inset)
+		head:SetAttribute("y", 0.5)
+		CollectionService:AddTag(head, "AR_Follow")
+	end
+	return math.min(n, #slots)
+end
+
 function Extras.build(ctx, opts)
 	opts = opts or {}
 	Extras.musicScreens(ctx)
+	Extras.followLights(ctx)
 	pendants(ctx, ctx.folders.Floor1, "BarEPendant", { { 69.5, -38 }, { 69.5, -22 } }, 0)
 	pendants(ctx, ctx.folders.Floor1, "BarWPendant", { { -69.5, -38 }, { -69.5, -22 } }, 0)
 	pendants(ctx, ctx.folders.Floor2, "VipPendant", { { -10, -71.5 }, { 10, -71.5 } }, 24)

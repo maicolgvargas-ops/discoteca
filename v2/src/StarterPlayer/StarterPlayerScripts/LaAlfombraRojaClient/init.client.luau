@@ -37,6 +37,8 @@ local Dance = require(script.Dance)
 local GuardUi = require(script.GuardUi)
 local Npcs = require(script.Npcs)
 local Hud = require(script.Hud)
+local FollowLights = require(script.FollowLights)
+local Mood = require(script.Mood)
 
 local deps = { club = club, control = control, remotes = remotes }
 Effects.init(club, control)
@@ -46,6 +48,8 @@ ShopUi.init(deps)
 Dance.init(deps)
 GuardUi.init(deps)
 Npcs.init()
+FollowLights.init(Effects)
+Mood.init(Effects)
 Hud.init({
 	dance = Dance.toggle,
 	backpack = function()
@@ -72,6 +76,8 @@ end)
 local slow = 0
 RunService.Heartbeat:Connect(function(dt)
 	Effects.step(dt)
+	FollowLights.step(dt, Effects.isNear())
+	Mood.step(dt)
 	Npcs.step(dt)
 	Dance.step(dt)
 	slow += dt

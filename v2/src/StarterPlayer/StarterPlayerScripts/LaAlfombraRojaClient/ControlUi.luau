@@ -72,7 +72,7 @@ local function build()
 	end
 
 	------------------------------------------------------------------ luces
-	local list = make("ScrollingFrame", { Name = "Luces", BackgroundTransparency = 1, Position = UDim2.fromOffset(8, 88), Size = UDim2.new(1, -16, 1, -96), CanvasSize = UDim2.new(0, 0, 0, 1040), ScrollBarThickness = 6, BorderSizePixel = 0 }, frame)
+	local list = make("ScrollingFrame", { Name = "Luces", BackgroundTransparency = 1, Position = UDim2.fromOffset(8, 88), Size = UDim2.new(1, -16, 1, -96), CanvasSize = UDim2.new(0, 0, 0, 1330), ScrollBarThickness = 6, BorderSizePixel = 0 }, frame)
 	make("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, list)
 	st.frames.luces = list
 	local order = 0
@@ -145,8 +145,8 @@ local function build()
 
 	header("Presets")
 	local presets = row("Presets")
-	presets.Size = UDim2.new(1, 0, 0, 76)
-	for i, p in { { "Elegante", "Elegante cálido" }, { "Fiesta", "Fiesta" }, { "Discoteca", "Discoteca" }, { "SinEfectos", "Apagado de efectos" } } do
+	presets.Size = UDim2.new(1, 0, 0, 112)
+	for i, p in { { "Elegante", "Elegante cálido" }, { "Fiesta", "Fiesta" }, { "Discoteca", "Discoteca" }, { "DiscotecaOscura", "Discoteca oscura" }, { "SinEfectos", "Apagado de efectos" } } do
 		local b = button("Preset_" .. p[1], p[2], presets, UDim2.new(0.5, -8, 0, 30), UDim2.new((i - 1) % 2 * 0.5, 4, 0, 4 + math.floor((i - 1) / 2) * 36))
 		b.Activated:Connect(function()
 			send("Preset", p[1])
@@ -155,6 +155,13 @@ local function build()
 			paint(b, S.Preset == p[1])
 		end
 	end
+
+	header("Focos rojos y ambiente")
+	toggle("Follow", "Focos rojos de seguimiento")
+	stepper("FollowIntensity", "Intensidad focos", 0, 1.5, 0.1, pct)
+	stepper("FollowSpeed", "Velocidad focos", 0.25, 2, 0.25, mult)
+	stepper("Dark", "Oscuridad ambiente", 0, 1, 0.1, pct)
+	Ui.label({ LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 30), Font = Enum.Font.Gotham, Text = "Los focos siguen a quien baila en la pista. Escaleras, entrada y barras mantienen su luz mínima.", TextColor3 = Ui.MUTED, TextWrapped = true }, list)
 
 	header("Efectos")
 	toggle("Shafts", "Haces de luz")

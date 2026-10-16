@@ -8,7 +8,7 @@
 
 local Config = {
 	Name = "LaAlfombraRoja",
-	Version = "2.0.0",
+	Version = "2.1.0",
 
 	-- PERFIL GRAFICO: "Equilibrado" (por defecto, prioriza fluidez) o "Alta". Solo cambia lo que se
 	-- construye y cuanto trabajo hacen las animaciones locales: NO toca la calidad grafica del jugador
@@ -67,6 +67,24 @@ local Config = {
 		AutoNext = true, -- al terminar una pista pasa a la siguiente
 		RollOffMin = 20,
 		RollOffMax = 160,
+	},
+
+	-- FOCOS ROJOS DE SEGUIMIENTO (2 en Equilibrado, 4 en Alta, colgados del truss del atrio). Los mueve SOLO
+	-- el cliente: siguen suavemente a quien baila dentro de la pista y, sin nadie, barren la pista despacio.
+	-- Sin sombras (no cuestan render extra) y apagados por defecto: se activan desde la cabina o con el
+	-- preset "Discoteca oscura". No cambian la calidad grafica de nadie.
+	Follow = {
+		Enabled = true,
+		Color = { 255, 28, 40 },
+		Angle = 26, -- apertura del foco (grados)
+		Range = 60, -- maximo que admite una luz de Roblox
+		Brightness = 4.5, -- al 100 % de intensidad
+		MaxSpeed = 24, -- studs/s maximos a los que se desplaza el punto iluminado (x velocidad de la cabina)
+		Smooth = 2.6, -- suavizado exponencial (mayor = mas rapido)
+		Dwell = 5, -- segundos que un foco sigue a la misma persona antes de repartirse de nuevo
+		UpdateHz = 20, -- actualizaciones por segundo (30 en Alta)
+		FadeSeconds = 1.2,
+		Inset = 2, -- margen interior de la pista: el haz nunca sale de ella
 	},
 
 	-- TIENDA / INVENTARIO

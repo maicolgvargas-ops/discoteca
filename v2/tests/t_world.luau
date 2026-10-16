@@ -68,7 +68,7 @@ for _, d in club:GetDescendants() do
 		table.insert(lightsList, { x = part.CFrame.px, y = part.CFrame.py, z = part.CFrame.pz, r = d.Range, on = d.Enabled ~= false })
 	end
 end
-check("luces dentro del limite del perfil (Equilibrado <= 145, Alta <= 200)", #lightsList <= (PROFILE_NAME == "Alta" and 200 or 145), #lightsList)
+check("luces dentro del limite del perfil (Equilibrado <= 150, Alta <= 200)", #lightsList <= (PROFILE_NAME == "Alta" and 200 or 150), #lightsList)
 print("        luces=" .. #lightsList)
 check("SpawnLocation presente", club:FindFirstChild("ClubSpawn") ~= nil)
 local hasSound = false
@@ -974,6 +974,41 @@ check("telaranas (>= 7)", count("Web%u?%d*_R0$") >= 7, count("Web%u?%d*_R0$"))
 check("murcielagos (>= 14)", count("Bat%d+_Body$") >= 14, count("Bat%d+_Body$"))
 check("guirnaldas y calderos", count("Garland_Bulb0$") >= 3 and count("Cauldron_Pot$") >= 3)
 check("luces de llama con parpadeo (>= 15, o ninguna si el perfil las recorta)", #fx.flames >= (PROFILE.pruneMinor and 0 or 15), #fx.flames)
+
+-- ================= FOCOS ROJOS DE SEGUIMIENTO (v3) =================
+local CSv = game:GetService("CollectionService")
+local fheads = CSv:GetTagged("AR_Follow")
+check("focos rojos: " .. PROFILE.followers .. " segun el perfil (2-4)", #fheads == PROFILE.followers and #fheads >= 2 and #fheads <= 4, #fheads)
+local fok, fmsg = true, nil
+for _, h in fheads do
+	local l, b = h:FindFirstChildOfClass("SpotLight"), h:FindFirstChildOfClass("Beam")
+	local tgt = h.Parent:FindFirstChild("FollowTarget")
+	local x1, x2, z1, z2 = h:GetAttribute("x1"), h:GetAttribute("x2"), h:GetAttribute("z1"), h:GetAttribute("z2")
+	local D = LAYOUT.dance
+	if not (l and b and tgt) then fok, fmsg = false, "faltan luz/haz/objetivo" end
+	if l and (l.Shadows ~= false or l.Range > 60 or l.Enabled ~= false or l.Color.R < 0.9 or l.Color.G > 0.2) then fok, fmsg = false, "luz: sombras/rango/estado/color" end
+	if b and (b.Enabled ~= false or b.Attachment0 == nil or b.Attachment1 == nil or b.Attachment1.Parent ~= tgt) then fok, fmsg = false, "haz" end
+	if not (x1 and x1 >= D.x1 and x2 <= D.x2 and z1 >= D.z1 and z2 <= D.z2 and x1 < x2 and z1 < z2) then fok, fmsg = false, "limites fuera de la pista" end
+	if tgt and tgt.Transparency ~= 1 then fok, fmsg = false, "objetivo visible" end
+	if h.CanCollide ~= false then fok, fmsg = false, "cabeza colisiona" end
+end
+check("cada foco: luz roja SIN sombras (rango <= 60), haz con 2 attachments, apagados de inicio, limites dentro de la pista", fok, fmsg)
+local zoneSafe = true
+for _, d in club:GetDescendants() do
+	if (d:IsA("SpotLight") or d:IsA("PointLight")) and string.match(d.Parent.Name, "^FollowHead") and CSv:HasTag(d, "AR_Light") then zoneSafe = false end
+end
+check("los focos NO se regulan como luces de zona (los controla su propio interruptor/intensidad)", zoneSafe)
+check("estrobo apagado por defecto en la cabina", club.Control:GetAttribute("Strobe") == false)
+check("bar, escaleras y entrada: sus luces tienen minimo de seguridad en la zona oscura", (function()
+	local pend, stair = 0, 0
+	for _, d in club:GetDescendants() do
+		if (d:IsA("PointLight") or d:IsA("SpotLight")) and d:GetAttribute("safe") == true then
+			if string.match(d.Parent.Name, "^Bar[EW]PendantBulb") then pend += 1 end
+			if string.match(d.Parent.Name, "StairLamp") then stair += 1 end
+		end
+	end
+	return pend == 4 and stair >= 6
+end)())
 
 print(string.format("\nRESULTADO: %d fallo(s)", failures))
 if failures > 0 then
