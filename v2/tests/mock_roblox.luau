@@ -67,14 +67,17 @@ function UDim.new(s, o)
 	return { Scale = s, Offset = o, __type = "UDim" }
 end
 local UDim2 = {}
+local function __udim2(xs, xo, ys, yo)
+	return { X = { Scale = xs or 0, Offset = xo or 0 }, Y = { Scale = ys or 0, Offset = yo or 0 }, __type = "UDim2" }
+end
 function UDim2.fromScale(x, y)
-	return { X = x, Y = y, __type = "UDim2" }
+	return __udim2(x, 0, y, 0)
 end
 function UDim2.fromOffset(x, y)
-	return { OX = x, OY = y, __type = "UDim2" }
+	return __udim2(0, x, 0, y)
 end
 function UDim2.new(xs, xo, ys, yo)
-	return { X = xs or 0, XO = xo or 0, Y = ys or 0, YO = yo or 0, __type = "UDim2" }
+	return __udim2(xs, xo, ys, yo)
 end
 
 local ColorSequence = {}
@@ -204,12 +207,15 @@ local Enum = {
 	SurfaceType = enumOf("SurfaceType", { "Smooth" }),
 	NormalId = enumOf("NormalId", { "Front", "Bottom", "Top" }),
 	SurfaceGuiSizingMode = enumOf("SurfaceGuiSizingMode", { "PixelsPerStud" }),
-	Font = enumOf("Font", { "GothamBlack", "GothamMedium", "GothamBold", "Bodoni", "Garamond", "Gotham", "SourceSans", "SourceSansBold" }),
+	Font = enumOf("Font", { "GothamBlack", "GothamMedium", "GothamBold", "Bodoni", "Garamond", "Gotham", "SourceSans", "SourceSansBold", "Code" }),
 	ScaleType = enumOf("ScaleType", { "Fit" }),
 	RollOffMode = enumOf("RollOffMode", { "InverseTapered" }),
 	TextXAlignment = enumOf("TextXAlignment", { "Left", "Center", "Right" }),
 	TextYAlignment = enumOf("TextYAlignment", { "Top", "Center", "Bottom" }),
 	SortOrder = enumOf("SortOrder", { "LayoutOrder" }),
+	FillDirection = enumOf("FillDirection", { "Horizontal", "Vertical" }),
+	HorizontalAlignment = enumOf("HorizontalAlignment", { "Left", "Center", "Right" }),
+	UserInputType = enumOf("UserInputType", { "MouseButton1", "MouseMovement", "Touch" }),
 	KeyCode = enumOf("KeyCode", { "E" }),
 	HumanoidRigType = enumOf("HumanoidRigType", { "R6", "R15" }),
 	HumanoidHealthDisplayType = enumOf("HumanoidHealthDisplayType", { "AlwaysOff", "DisplayWhenDamaged" }),
@@ -254,6 +260,7 @@ local CLASSES = {
 	ScreenGui = { props = { "Name", "Parent", "ResetOnSpawn", "IgnoreGuiInset", "DisplayOrder" } },
 	Frame = { props = { "Name", "Parent", "AnchorPoint", "Position", "Size", "BackgroundColor3", "BackgroundTransparency", "BorderSizePixel" } },
 	ImageLabel = { props = { "Name", "Parent", "BackgroundTransparency", "Image", "ScaleType", "Position", "Size", "AnchorPoint", "ImageTransparency" } },
+	UISizeConstraint = { props = { "Name", "Parent", "MaxSize", "MinSize" } },
 	UICorner = { props = { "Name", "Parent", "CornerRadius" } },
 	UIStroke = { props = { "Name", "Parent", "Color", "Thickness", "Transparency" } },
 	UIGradient = { props = { "Name", "Parent", "Color", "Rotation" } },
@@ -275,7 +282,7 @@ local CLASSES = {
 	Camera = { props = { "Name", "Parent", "CFrame" } },
 	TextButton = { props = { "Name", "Parent", "BackgroundTransparency", "Size", "Position", "Text", "TextScaled", "Font", "TextColor3", "BackgroundColor3", "AutoButtonColor", "LayoutOrder", "TextWrapped", "Visible" } },
 	ScrollingFrame = { props = { "Name", "Parent", "BackgroundTransparency", "Position", "Size", "CanvasSize", "ScrollBarThickness", "BorderSizePixel", "LayoutOrder" } },
-	UIListLayout = { props = { "Name", "Parent", "Padding", "SortOrder" } },
+	UIListLayout = { props = { "Name", "Parent", "Padding", "SortOrder", "FillDirection", "HorizontalAlignment" } },
 	Seat = { props = concat(PART_PROPS, { "Disabled" }), base = true },
 	Model2 = { props = { "Name", "Parent" } },
 	Humanoid = { props = { "Name", "Parent", "RigType", "DisplayName", "NameDisplayDistance", "HealthDisplayType", "Health", "MaxHealth", "Sit", "WalkSpeed", "JumpPower", "JumpHeight", "SeatPart", "HipHeight", "PlatformStand", "BreakJointsOnDeath" } },
@@ -307,6 +314,12 @@ local CLASSES = {
 CLASSES.Frame.props = concat(CLASSES.Frame.props, { "LayoutOrder", "Visible" })
 CLASSES.TextLabel.props = concat(CLASSES.TextLabel.props, { "LayoutOrder", "TextWrapped", "BackgroundColor3", "AnchorPoint" })
 CLASSES.ScreenGui.props = concat(CLASSES.ScreenGui.props, { "Enabled" })
+CLASSES.ScrollingFrame.props = concat(CLASSES.ScrollingFrame.props, { "AutomaticCanvasSize" })
+CLASSES.TextLabel.props = concat(CLASSES.TextLabel.props, { "TextSize" })
+CLASSES.ScrollingFrame.props = concat(CLASSES.ScrollingFrame.props, { "Visible" })
+CLASSES.ImageLabel.props = concat(CLASSES.ImageLabel.props, { "BackgroundColor3" })
+CLASSES.ImageLabel.props = concat(CLASSES.ImageLabel.props, { "BorderSizePixel" })
+CLASSES.Humanoid.props = concat(CLASSES.Humanoid.props, { "Jump" })
 CLASSES.Workspace.props = concat(CLASSES.Workspace.props, { "CurrentCamera" })
 CLASSES.Model.props = concat(CLASSES.Model.props, { "PrimaryPart" })
 CLASSES.Sound.props = concat(CLASSES.Sound.props, { "TimePosition", "TimeLength", "PlaybackLoudness", "IsPlaying" })
@@ -609,6 +622,10 @@ local function __newWithSignals(className)
 		local sg = makeSignal()
 		rawset(o, "MouseButton1Click", sg)
 		rawset(o, "Activated", sg)
+	elseif className == "ViewportFrame" or className == "Frame" or className == "ImageLabel" then
+		rawset(o, "InputBegan", makeSignal())
+		rawset(o, "InputEnded", makeSignal())
+		rawset(o, "InputChanged", makeSignal())
 	elseif className == "TextBox" then
 		rawset(o, "FocusLost", makeSignal())
 	elseif className == "Tool" then
@@ -636,6 +653,8 @@ local function __newWithSignals(className)
 			if ps and ps.Occupant then ps.Occupant:_fire() end
 		end)
 	elseif className == "Sound" then
+		o._props.PlaybackLoudness = 0
+		o._props.IsPlaying = false
 		rawset(o, "Ended", makeSignal())
 		rawset(o, "Play", function(self)
 			self._props.Playing = true

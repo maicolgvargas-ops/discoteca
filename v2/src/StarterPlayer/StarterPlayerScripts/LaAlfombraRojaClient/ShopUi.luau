@@ -58,9 +58,11 @@ local function realPrice(product)
 			end)
 			if ok and type(info) == "table" and type(info.PriceInRobux) == "number" then
 				priceCache[product.ProductId] = info.PriceInRobux
-				if widgets.refresh then
-					widgets.refresh()
-				end
+				task.defer(function()
+					if widgets.refresh then
+						widgets.refresh()
+					end
+				end)
 			end
 		end)
 		return nil
