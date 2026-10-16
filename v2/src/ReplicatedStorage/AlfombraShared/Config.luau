@@ -8,7 +8,7 @@
 
 local Config = {
 	Name = "LaAlfombraRoja",
-	Version = "2.1.3",
+	Version = "2.1.4",
 
 	-- PERFIL GRAFICO: "Equilibrado" (por defecto, prioriza fluidez) o "Alta". Solo cambia lo que se
 	-- construye y cuanto trabajo hacen las animaciones locales: NO toca la calidad grafica del jugador
@@ -153,7 +153,9 @@ local Config = {
 		},
 	},
 
-	Seats = { Enabled = true, PromptDistance = 7, Cooldown = 0.6 },
+	-- StandCooldown: segundos tras levantarse en los que ese jugador no puede volver a sentarse (evita sentarse de inmediato).
+	-- SameSeatCooldown: idem para el MISMO asiento. ExitDistance: distancia a la que el servidor deja al jugador al salir.
+	Seats = { Enabled = true, PromptDistance = 7, Cooldown = 0.6, StandCooldown = 1.0, SameSeatCooldown = 2.5, ExitDistance = 2.4, StandMinInterval = 0.3 },
 
 	-- BAILE. Procedural y local por defecto (no hacen falta animaciones). AnimationId es OPCIONAL y
 	-- vacio por defecto: si pones un id de animacion que tengas permiso de usar, se reproduce esa en vez de

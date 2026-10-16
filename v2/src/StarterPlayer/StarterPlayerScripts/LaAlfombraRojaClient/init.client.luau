@@ -57,7 +57,31 @@ boot("ShopUi", ShopUi.init, deps)
 boot("Dance", Dance.init, deps)
 boot("GuardUi", GuardUi.init, deps)
 boot("Npcs", Npcs.init)
+-- Salir del asiento: el boton "Levantarse" y la tecla de salto (JumpRequest) piden la salida al SERVIDOR, que valida que
+-- es tu propio asiento (en Studio se vio que Humanoid.Jump / Sit=false no bastaban con asientos anclados).
+local lastStand = 0
+local function requestStand()
+	local ch = Players.LocalPlayer.Character
+	local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+	if not hum or not (hum.Sit or hum.SeatPart ~= nil) then
+		return
+	end
+	local now = os.clock()
+	if now - lastStand < 0.4 then
+		return -- anti-spam en el cliente (el servidor tambien limita)
+	end
+	lastStand = now
+	pcall(function()
+		hum.Jump = true -- camino normal del motor
+	end)
+	remotes.Social:FireServer("Stand")
+end
+pcall(function()
+	game:GetService("UserInputService").JumpRequest:Connect(requestStand)
+end)
+
 boot("Hud", Hud.init, {
+	stand = requestStand,
 	dance = Dance.toggle,
 	backpack = function()
 		ShopUi.open("mochila")

@@ -19,6 +19,9 @@ end
 Vector3.__sub = function(a, b)
 	return Vector3.new(a.X - b.X, a.Y - b.Y, a.Z - b.Z)
 end
+Vector3.__unm = function(a)
+	return setmetatable({ X = -a.X, Y = -a.Y, Z = -a.Z, __type = "Vector3" }, Vector3)
+end
 Vector3.__mul = function(a, b)
 	if type(a) == "number" then
 		return Vector3.new(a * b.X, a * b.Y, a * b.Z)
@@ -80,6 +83,7 @@ function UDim2.new(xs, xo, ys, yo)
 	return __udim2(xs, xo, ys, yo)
 end
 
+local OverlapParams = { new = function() return { FilterType = nil, FilterDescendantsInstances = {} } end }
 local ColorSequence = {}
 function ColorSequence.new(a, b)
 	assert(a ~= nil and a.__type == "Color3", "ColorSequence.new necesita un Color3")
@@ -130,6 +134,8 @@ end
 CFrame.__index = function(self, k)
 	if k == "Position" then
 		return Vector3.new(self.px, self.py, self.pz)
+	elseif k == "RightVector" then
+		return Vector3.new(self.r[1], self.r[4], self.r[7])
 	elseif k == "LookVector" then
 		return Vector3.new(-self.r[3], -self.r[6], -self.r[9])
 	end
@@ -235,6 +241,7 @@ local Enum = {
 	TextXAlignment = enumOf("TextXAlignment", { "Left", "Center", "Right" }),
 	TextYAlignment = enumOf("TextYAlignment", { "Top", "Center", "Bottom" }),
 	SortOrder = enumOf("SortOrder", { "LayoutOrder" }),
+	RaycastFilterType = enumOf("RaycastFilterType", { "Exclude", "Include" }),
 	FillDirection = enumOf("FillDirection", { "Horizontal", "Vertical" }),
 	HorizontalAlignment = enumOf("HorizontalAlignment", { "Left", "Center", "Right" }),
 	UserInputType = enumOf("UserInputType", { "MouseButton1", "MouseMovement", "Touch" }),
@@ -282,6 +289,7 @@ local CLASSES = {
 	ScreenGui = { props = { "Name", "Parent", "ResetOnSpawn", "IgnoreGuiInset", "DisplayOrder" } },
 	Frame = { props = { "Name", "Parent", "AnchorPoint", "Position", "Size", "BackgroundColor3", "BackgroundTransparency", "BorderSizePixel" } },
 	ImageLabel = { props = { "Name", "Parent", "BackgroundTransparency", "Image", "ScaleType", "Position", "Size", "AnchorPoint", "ImageTransparency" } },
+	UserInputService = { props = { "Name", "Parent" } },
 	UISizeConstraint = { props = { "Name", "Parent", "MaxSize", "MinSize" } },
 	UICorner = { props = { "Name", "Parent", "CornerRadius" } },
 	UIStroke = { props = { "Name", "Parent", "Color", "Thickness", "Transparency" } },
@@ -432,6 +440,18 @@ local RANGES = {
 }
 RANGES.Beam.Width0 = { 0, 100 }
 
+-- true = reproduce el fallo REAL observado en Studio: sentado en un Seat anclado, ni Humanoid.Jump ni Sit=false liberan
+-- al jugador. Solo destruir el SeatWeld (lo que hace el servidor) lo libera.
+__seatStuck = true
+local function __releaseSeat(seat)
+	local hum = rawget(seat, "_occupant")
+	if not hum then return end
+	rawset(seat, "_occupant", nil)
+	rawset(hum, "_seatPart", nil)
+	hum._props.Sit = false
+	local ps = rawget(seat, "_propSigs")
+	if ps and ps.Occupant then ps.Occupant:_fire() end
+end
 local READONLY = { AnimationConstraint = { C0 = true, C1 = true, Part0 = true, Part1 = true } }
 Inst.__newindex = function(self, k, v)
 	if READONLY[self.ClassName] and READONLY[self.ClassName][k] and not rawget(self, "_init") then
@@ -439,6 +459,11 @@ Inst.__newindex = function(self, k, v)
 	end
 	if not self._allowed[k] then
 		error(self.ClassName .. "." .. tostring(k) .. " no es una propiedad valida (asignacion)", 2)
+	end
+	if self.ClassName == "Humanoid" and rawget(self, "_seatPart") and ((k == "Sit" and v == false) or (k == "Jump" and v == true)) then
+		self._props[k] = v
+		if not __seatStuck then __releaseSeat(rawget(self, "_seatPart")) else self._props.Sit = true end
+		return
 	end
 	if v == nil and k ~= "Parent" then
 		error(self.ClassName .. "." .. k .. " = nil", 2)
@@ -623,6 +648,10 @@ function Inst:FindFirstAncestorOfClass(cls)
 	return nil
 end
 function Inst:Destroy()
+	if self.ClassName == "Weld" and self._props.Name == "SeatWeld" then
+		local seat = rawget(self, "_parent")
+		if seat and rawget(seat, "_occupant") then __releaseSeat(seat) end
+	end
 	local d = rawget(self, "_destroying")
 	if d then d:_fire() end
 	self.Parent = nil
@@ -689,6 +718,11 @@ local function __newWithSignals(className)
 			rawset(self, "_occupant", humanoid)
 			rawset(humanoid, "_seatPart", self)
 			humanoid._props.Sit = true
+			local w = newInstance("Weld")
+			w.Name = "SeatWeld"
+			w.Part0 = self
+			w.Part1 = humanoid.Parent:FindFirstChild("HumanoidRootPart")
+			w.Parent = self
 			local ps = rawget(self, "_propSigs")
 			if ps and ps.Occupant then ps.Occupant:_fire() end
 		end)
@@ -764,6 +798,34 @@ rawset(__runService, "IsStudio", function()
 end)
 rawset(__runService, "IsServer", function()
 	return true
+end)
+rawset(workspace, "GetPartBoundsInBox", function(self, cf, size, params)
+	local out = {}
+	local excl = {}
+	for _, inst in (params and params.FilterDescendantsInstances) or {} do excl[inst] = true end
+	local bx1, bx2 = cf.px - size.X / 2, cf.px + size.X / 2
+	local by1, by2 = cf.py - size.Y / 2, cf.py + size.Y / 2
+	local bz1, bz2 = cf.pz - size.Z / 2, cf.pz + size.Z / 2
+	for _, d in self:GetDescendants() do
+		if d:IsA("BasePart") then
+			local skip = false
+			local a = d
+			while a do
+				if excl[a] then skip = true break end
+				a = rawget(a, "_parent")
+			end
+			if not skip then
+				local s2, c, r = d.Size, d.CFrame, d.CFrame.r
+				local hx = (math.abs(r[1]) * s2.X + math.abs(r[2]) * s2.Y + math.abs(r[3]) * s2.Z) / 2
+				local hy = (math.abs(r[4]) * s2.X + math.abs(r[5]) * s2.Y + math.abs(r[6]) * s2.Z) / 2
+				local hz = (math.abs(r[7]) * s2.X + math.abs(r[8]) * s2.Y + math.abs(r[9]) * s2.Z) / 2
+				if c.px - hx < bx2 and c.px + hx > bx1 and c.py - hy < by2 and c.py + hy > by1 and c.pz - hz < bz2 and c.pz + hz > bz1 then
+					table.insert(out, d)
+				end
+			end
+		end
+	end
+	return out
 end)
 rawset(workspace, "GetServerTimeNow", function()
 	return __now
@@ -852,6 +914,12 @@ end
 -- Players ---------------------------------------------------------------
 local __players = { _list = {}, PlayerRemoving = makeSignal(), PlayerAdded = makeSignal(), LocalPlayer = nil }
 function __players:GetPlayers() return table.clone(self._list) end
+function __players:GetPlayerFromCharacter(model)
+	for _, p in self._list do
+		if p.Character == model then return p end
+	end
+	return nil
+end
 function __players:GetPlayerByUserId(id)
 	for _, p in self._list do
 		if p.UserId == id then return p end
@@ -1069,6 +1137,8 @@ end
 
 local __proximityService = newInstance("ProximityPromptService")
 
+local __uis = newInstance("UserInputService")
+rawset(__uis, "JumpRequest", makeSignal())
 local __closeFns = {}
 local game = {
 	CreatorId = 0,
@@ -1081,7 +1151,7 @@ local game = {
 			ReplicatedStorage = __replicated, ServerScriptService = __serverScripts, StarterPlayer = __starterPlayer,
 			CollectionService = __collection, Players = __players, DataStoreService = __dataStoreService,
 			MarketplaceService = __market, PhysicsService = __physics, TextChatService = __textChat,
-			ProximityPromptService = __proximityService,
+			ProximityPromptService = __proximityService, UserInputService = __uis,
 		})[name]
 		if s == nil then
 			error("GetService('" .. tostring(name) .. "') no soportado en el mock")

@@ -678,6 +678,71 @@ do -- ===================================================== arranque robusto de 
 	run(0.5, 0.1)
 end
 
+do -- ===================================================== sentarse y levantarse DE VERDAD (asiento anclado: Jump no basta)
+	local UIS = game:GetService("UserInputService")
+	local seat = find("BarWStool3_Sit")
+	local hud = gui("LaAlfombraRojaHud")
+	local stand = btn(hud, "Levantarse")
+	local standMsgs = 0
+	R.Social.OnServerEvent:Connect(function(_, action) if action == "Stand" then standMsgs += 1 end end)
+	me.Character.HumanoidRootPart.CFrame = CFrame.new(seat.Position + Vector3.new(2, 0, 0))
+	local hum = me.Character:FindFirstChildOfClass("Humanoid")
+	hum.Sit = false
+	run(5, 0.1)
+	seat:FindFirstChild("SitPrompt").Triggered:_fire(me)
+	run(0.8, 0.1)
+	check("E: el jugador local queda sentado (SeatPart real) y aparece 'Levantarse'", hum.SeatPart == seat and hum.Sit == true and stand.Visible == true)
+	hum.Jump = true
+	run(2, 0.1)
+	check("(fallo real reproducido) el salto del motor solo NO libera el asiento anclado", hum.SeatPart == seat and hum.Sit == true)
+	standMsgs = 0
+	click(stand)
+	run(0.3, 0.1)
+	check("el boton 'Levantarse' libera: pide Stand al servidor y el jugador queda de pie", standMsgs == 1 and hum.SeatPart == nil and hum.Sit == false and seat.Occupant == nil)
+	run(0.7, 0.1)
+	check("de pie el boton se oculta", stand.Visible == false)
+	-- volver a sentarse: cooldown y luego si
+	seat:FindFirstChild("SitPrompt").Triggered:_fire(me)
+	check("pulsar E justo despues no la sienta de inmediato", hum.SeatPart == nil)
+	run(4, 0.1)
+	seat:FindFirstChild("SitPrompt").Triggered:_fire(me)
+	run(0.8, 0.1)
+	check("pasado el cooldown puede volver a sentarse", hum.SeatPart == seat and hum.Sit == true)
+	-- la tecla de salto (JumpRequest), incluido el boton de salto del movil
+	standMsgs = 0
+	UIS.JumpRequest:_fire()
+	run(0.3, 0.1)
+	check("la tecla de salto (JumpRequest) tambien la levanta via servidor", standMsgs == 1 and hum.SeatPart == nil and hum.Sit == false)
+	-- spam: el cliente limita las peticiones
+	run(4, 0.1)
+	seat:FindFirstChild("SitPrompt").Triggered:_fire(me)
+	standMsgs = 0
+	for _ = 1, 40 do UIS.JumpRequest:_fire() click(stand) end
+	check("spam de salto/boton justo al sentarse: el cliente limita (<= 2 peticiones) y el servidor lo ignora (anti-parpadeo)", standMsgs <= 2 and hum.SeatPart == seat, standMsgs)
+	run(0.6, 0.1)
+	click(stand)
+	run(0.3, 0.1)
+	check("pasado el intervalo, un clic la levanta", hum.SeatPart == nil and hum.Sit == false)
+	-- de pie, saltar no envia nada
+	standMsgs = 0
+	run(1, 0.1)
+	for _ = 1, 10 do UIS.JumpRequest:_fire() end
+	check("de pie, saltar NO envia Stand (no hay trafico inutil)", standMsgs == 0)
+	-- asiento ocupado por otro: no se puede, y mi Stand no lo libera
+	local otro = __makePlayer("Otro", 4141)
+	__spawnCharacter(otro, seat.Position + Vector3.new(0, 0, 2), "R15")
+	__players.PlayerAdded:_fire(otro)
+	run(5, 0.1)
+	seat:FindFirstChild("SitPrompt").Triggered:_fire(otro)
+	run(0.8, 0.1)
+	check("otro jugador ocupa el asiento", seat.Occupant == otro.Character:FindFirstChildOfClass("Humanoid"))
+	seat:FindFirstChild("SitPrompt").Triggered:_fire(me)
+	UIS.JumpRequest:_fire()
+	run(0.5, 0.1)
+	check("yo no puedo sentarme en un asiento ocupado y mi Stand no libera al ocupante", seat.Occupant == otro.Character:FindFirstChildOfClass("Humanoid") and hum.SeatPart == nil)
+	__removePlayer(otro)
+end
+
 do -- ===================================================== reglas de seguridad / rendimiento
 	local function srcOf(m) return rawget(m, "_module") and "" or "" end
 	check("el cliente no crea chat propio: usa TextChatService (CanUserChatAsync consultado)", true)

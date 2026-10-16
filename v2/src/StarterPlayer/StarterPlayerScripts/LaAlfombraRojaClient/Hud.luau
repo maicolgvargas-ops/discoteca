@@ -32,9 +32,14 @@ function Hud.init(cb)
 		return b
 	end
 	standBtn = add("Levantarse", "Levantarse", 1, function()
-		local h = humanoid()
-		if h and h.Sit then
-			h.Jump = true
+		-- pide salir al servidor (que valida que es TU asiento); ademas Jump, que es el camino normal del motor
+		if callbacks.stand then
+			callbacks.stand()
+		else
+			local h = humanoid()
+			if h and h.Sit then
+				h.Jump = true
+			end
 		end
 	end)
 	standBtn.Visible = false
@@ -56,7 +61,7 @@ function Hud.tick()
 		return
 	end
 	local h = humanoid()
-	standBtn.Visible = h ~= nil and h.Sit == true
+	standBtn.Visible = h ~= nil and (h.Sit == true or h.SeatPart ~= nil)
 end
 
 return Hud

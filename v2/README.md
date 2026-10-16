@@ -1,4 +1,4 @@
-# LA ALFOMBRA ROJA · v2.1.3
+# LA ALFOMBRA ROJA · v2.1.4
 
 Versión **nueva** (no sustituye a la v1 de la raíz del repositorio ni al `LaAlfombraRoja_v2.rbxlx` anterior, que se conserva tal cual). Conserva el nombre y logo de corona dorada, texto
 dorado/rojo, alfombra roja, estilo luxury, muebles blancos y negros brillantes, la bola de espejos corregida
@@ -8,6 +8,35 @@ siguen en x = -76,9 y el `ClubSpawn` es invisible (`Transparency = 1`).
 > **Estado real:** todo está hecho por código y probado **solo en un simulador** (Luau + una API de Roblox simulada).
 > **Nada se ha abierto ni probado en Roblox Studio.** Véase la [matriz de pruebas](#matriz-de-pruebas).
 > No se ha publicado nada ni hecho merge.
+
+## Novedades de la 2.1.4 (salir del asiento)
+**QA real aportada por el usuario sobre la 2.1.2:** el shot gratuito se equipa en la hotbar, se sostiene y al activarlo se consume con
+el aviso «Has terminado» y desaparece (correcto). Sentarse con E en `BarWStool3_Sit` funciona, **pero «Levantarse» no lo libera**:
+tras varios segundos seguían `Humanoid.Sit = true`, `SeatPart = BarWStool3_Sit`, `State = Seated` (JumpPower 50, salto habilitado), y la
+barra espaciadora con el viewport enfocado tampoco lo soltaba. El botón solo ponía `Humanoid.Jump = true`.
+**Corrección (sin cambiar el resto):**
+- **Salida validada en el servidor.** Nueva acción `Stand` del remoto `Social` (con el mismo límite de frecuencia). El servidor solo
+  actúa si el jugador está sentado en **un asiento de este club** (`seatSet`, registrado en `setupSeats`) y **ese jugador es el ocupante**
+  (`seat.Occupant == humanoid`). Entonces pone `Sit = false`, destruye **solo** el `SeatWeld` de ese asiento (el de su único ocupante) y
+  coloca al jugador en un **punto de salida elegido por el servidor** a ≤ `ExitDistance` (2,4 studs) del asiento, comprobando con
+  `GetPartBoundsInBox` que el hueco esté libre (detrás, lados, delante; si no hay hueco, justo encima del asiento). El cliente **no envía
+  posiciones ni asientos** (se ignoran los argumentos): no hay teletransporte arbitrario. **Nunca libera a otros ocupantes**: un jugador
+  de pie, sentado en un `Seat` ajeno al club o en un asiento ocupado por otro no consigue nada.
+- **Cooldowns:** `StandCooldown` (1,0 s) tras levantarse por **cualquier causa** (botón, salto, soldadura destruida) el jugador no puede
+  volver a sentarse; `SameSeatCooldown` (2,5 s) para el **mismo** asiento; `StandMinInterval` (0,3 s) tras sentarse ignora `Stand`
+  (anti-parpadeo); más el `Cooldown` de 0,6 s ya existente entre sentadas.
+- **Cliente:** el botón «Levantarse» **y** `UserInputService.JumpRequest` (barra espaciadora y botón de salto del móvil) piden `Stand`
+  al servidor (con límite de 0,4 s en el cliente) y además ponen `Jump = true` (camino normal del motor). Solo se envía algo si estás
+  sentado. El botón aparece si `Sit` o `SeatPart ~= nil`.
+- **Sentarse:** ahora se espera hasta 0,3 s a que el `Occupant` se actualice tras `Seat:Sit` antes de recurrir a la alternativa
+  (activar `CanTouch` 1 s y subir al jugador), que podía actuar sin necesidad.
+- **Causa raíz NO confirmada.** Sospecha: los `Seat` del club están **anclados** y el personaje soldado a una pieza anclada queda con
+  propiedad de red del servidor, por lo que ni `Jump` ni `Sit = false` del cliente liberan. El diseño no depende de esa hipótesis (la
+  salida la hace el servidor). Si en Studio sigue fallando, mira en *Output* si hay errores y comprueba `seat.Anchored`,
+  `hum.SeatPart`, `seat:FindFirstChild("SeatWeld")` y el propietario de red del personaje (`part:GetNetworkOwner()`).
+- **Pruebas (simulador):** el mock **reproduce el fallo real** (Jump y `Sit = false` no liberan, solo destruir el `SeatWeld`). Cubren
+  botón, salto (`JumpRequest`), volver a sentarse, cooldowns, asiento ocupado, no liberar a otros, asiento ajeno al club, argumentos
+  manipulados, spam de `Stand`/E/salto, liberación por otra vía y salida del servidor sentado.
 
 ## Novedades de la 2.1.3 (revisión estática antes de habilitar Robux: libro de recibos duradero)
 **Problema encontrado:** `Inventory.recordReceipt` borraba los `PurchaseId` más antiguos al superar `MaxReceipts = 300`. Un callback
@@ -119,7 +148,7 @@ rojos **sin confirmar**. Cambios (todos **sin validar todavía en Studio**; solo
 
 | Archivo | Para qué |
 |---|---|
-| `LaAlfombraRoja_v2.1.3.rbxlx` | Place **listo para abrir** (versión actual): todos los Script, LocalScript y ModuleScript ya colocados. `LaAlfombraRoja_v2.1.2.rbxlx`, `LaAlfombraRoja_v2.1.1.rbxlx`, `LaAlfombraRoja_v2.1.0.rbxlx` y `LaAlfombraRoja_v2.rbxlx` son entregas anteriores y se conservan. |
+| `LaAlfombraRoja_v2.1.4.rbxlx` | Place **listo para abrir** (versión actual): todos los Script, LocalScript y ModuleScript ya colocados. `LaAlfombraRoja_v2.1.3.rbxlx`, `LaAlfombraRoja_v2.1.2.rbxlx`, `LaAlfombraRoja_v2.1.1.rbxlx`, `LaAlfombraRoja_v2.1.0.rbxlx` y `LaAlfombraRoja_v2.rbxlx` son entregas anteriores y se conservan. |
 | `src/` | Fuentes modulares `.luau` (estructura Rojo). Son idénticos a lo que lleva el `.rbxlx`. |
 | `default.project.json` | Proyecto Rojo opcional (`rojo build -o LaAlfombraRoja_v2.rbxlx`). |
 | `tools/make_place.py` | Regenera el `.rbxlx` desde `src/`. `tools/check_files.py` comprueba que coinciden. |
@@ -258,11 +287,12 @@ El inventario vive en un único registro por jugador (`DataStore`, clave `u<User
 | Láseres dentro del atrio, estrobo ≤ 3/s | ✅ | ❌ |
 | **Focos rojos de seguimiento**: apagados por defecto, límites de pista, suavidad, reparto entre personas, intensidad/velocidad, cero trabajo apagados o lejos, preset y su restablecimiento, oscuridad con mínimo 30 % del ambiente y 45 % en luces de acceso | ✅ | ❌ (aspecto real del haz, intensidad, sensación de oscuridad) |
 | **Baile con rig R15 moderno (AnimationConstraint, 0 Motor6D)**: reconocimiento, Transform sin tocar C0 (solo lectura), mezcla con Animator simulado sin acumulación, limpieza al parar/caminar/destruir, rig desconocido con aviso, R6 y R15 clásico intactos | ✅ (simulado) | ❌ (**solo QA del fallo; la corrección aún no se ha probado en Studio**) |
+| **Asientos**: sentarse con E, salir con botón/salto/`JumpRequest` validado en servidor, cooldowns, volver a sentarse, ocupados, no liberar a otros, asiento ajeno, spam (el mock reproduce el asiento anclado «pegado» observado en Studio) | ✅ 26 + 9 cliente (simulado) | ❌ (**la corrección aún no se ha probado en Studio**; causa raíz sin confirmar) |
 | Arranque aislado de módulos del cliente, registro tardío de focos, luces de acceso vs relleno con oscuridad máxima, menos exposición (valores de `Lighting`/bloom) | ✅ | ❌ (**el aspecto real de la exposición no se ha visto**) |
-| Pruebas de sabotaje (38 mutaciones, todas detectadas) | ✅ | n/a |
+| Pruebas de sabotaje (46 mutaciones, todas detectadas) | ✅ | n/a |
 | Ejecución real, rendimiento/FPS, colisiones, red, multijugador | ❌ | ❌ |
 
-Totales actuales (simulador): servidor 133, persistencia 33, libro de recibos 27, sin DataStore 14, Studio temporal 8 + 3 (producción), cliente 90, mundo 162 (×2 perfiles), archivos 14 comprobaciones, 38 sabotajes detectados. **Ninguno es una prueba en Studio.**
+Totales actuales (simulador): servidor 133, asientos 26, persistencia 33, libro de recibos 27, sin DataStore 14, Studio temporal 8 + 3 (producción), cliente 101, mundo 162 (×2 perfiles), archivos 14 comprobaciones, 46 sabotajes detectados. **Ninguno es una prueba en Studio.**
 
 ### Puntos que **no** se han podido verificar y conviene mirar primero en Studio
 1. Que `Seat:Sit(humanoid)` siente al jugador y que los asientos quedan bien colocados.
@@ -276,13 +306,14 @@ Totales actuales (simulador): servidor 133, persistencia 33, libro de recibos 27
 9. Aspecto de los focos rojos: ángulo (26°), brillo, anchura del haz y cuánto se ve la «niebla» del haz; ajusta `Config.Follow`.
 10. Que `Lighting.Ambient` local se vea bien con `Technology = Future` y que el nivel «Discoteca oscura» siga siendo legible en móvil.
 11. Baile: que el avatar R15 moderno (AnimationConstraint) baile bien en TU cliente y en el de otros jugadores, en pie y al reaparecer; que al andar vuelva a su postura; avatares con accesorios/capas.
-12. Concurrencia real del DataStore (dos servidores a la vez, rejoin rápido, `BindToClose` real).
+12. Asientos: que «Levantarse» y la barra espaciadora liberen en Studio (y en móvil), que el punto de salida no quede incrustado en la barra/sofás, y que el cooldown no resulte molesto (`Config.Seats`).
+13. Concurrencia real del DataStore (dos servidores a la vez, rejoin rápido, `BindToClose` real).
 
 ## Ejecutar las pruebas (opcional, necesita el intérprete `luau`)
 ```
 python3 tools/assemble_tests.py tests/t_server.luau /tmp/s.luau && luau /tmp/s.luau
 python3 tools/assemble_tests.py tests/t_persist.luau /tmp/p.luau && luau /tmp/p.luau
-for t in ledger nostore studiotemp studiotemp_prod; do python3 tools/assemble_tests.py tests/t_$t.luau /tmp/$t.luau && luau /tmp/$t.luau; done
+for t in seats ledger nostore studiotemp studiotemp_prod; do python3 tools/assemble_tests.py tests/t_$t.luau /tmp/$t.luau && luau /tmp/$t.luau; done
 python3 tools/assemble_tests.py tests/t_client.luau /tmp/c.luau && luau /tmp/c.luau
 python3 tools/assemble_tests.py tests/t_world.luau  /tmp/w.luau && luau /tmp/w.luau
 python3 tools/assemble_tests.py tests/t_world.luau  /tmp/wa.luau --set 'Quality="Alta"' && luau /tmp/wa.luau

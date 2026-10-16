@@ -29,6 +29,10 @@ local club
 local shopPoints = {} -- posiciones de bartenders/barras (para limitar compras por cercania)
 local guardParts = {}
 local seatCooldown = {} -- [player] = os.clock()
+local standAt = {} -- [player] = os.clock() de la ultima vez que se levanto (por cualquier causa)
+local lastSeatOf = {} -- [player] = { seat, t }
+local seatSet = {} -- [Seat] = true: SOLO los asientos de este club (no se acepta ninguno mas)
+local occupantOf = {} -- [Seat] = Humanoid que lo ocupaba (para anotar quien se levanto)
 local danceConns = {} -- [player] = { conns }
 
 local function hrpOf(player)
@@ -51,6 +55,14 @@ local function sit(player, seat)
 	if now - (seatCooldown[player] or -100) < Config.Seats.Cooldown then
 		return false
 	end
+	-- tras levantarse no se vuelve a sentar de inmediato (ni en el mismo asiento durante un poco mas)
+	if now - (standAt[player] or -100) < Config.Seats.StandCooldown then
+		return false
+	end
+	local last = lastSeatOf[player]
+	if last and last.seat == seat and now - (last.t or -100) < Config.Seats.SameSeatCooldown then
+		return false
+	end
 	seatCooldown[player] = now
 	if (hrp.Position - seat.CFrame.Position).Magnitude > Config.Seats.PromptDistance + 8 then
 		return false
@@ -58,6 +70,15 @@ local function sit(player, seat)
 	local ok = pcall(function()
 		seat:Sit(hum)
 	end)
+	-- el Occupant se actualiza un instante despues del Sit: se espera brevemente antes de recurrir a la alternativa
+	local waited = 0
+	while ok and seat.Occupant ~= hum and waited < 0.3 do
+		task.wait(0.05)
+		waited += 0.05
+	end
+	if ok and seat.Occupant == hum then
+		lastSeatOf[player] = { seat = seat, t = os.clock() }
+	end
 	if not ok or seat.Occupant ~= hum then
 		-- alternativa: acercar al personaje y dejar que el asiento lo detecte durante un instante
 		seat.CanTouch = true
@@ -69,6 +90,74 @@ local function sit(player, seat)
 	return true
 end
 
+-- Sale del asiento PROPIO del jugador: validado en el servidor. Solo si el jugador esta sentado en un asiento de este
+-- club, que le tiene a el como ocupante. Nunca libera a otros ocupantes ni acepta posiciones del cliente: el servidor
+-- elige un punto de salida cercano (<= ExitDistance + margen) y libre.
+local function exitCFrame(seat, hrp)
+	local look = seat.CFrame.LookVector
+	local right = seat.CFrame.RightVector
+	local base = seat.CFrame.Position + Vector3.new(0, 2.8, 0)
+	local d = Config.Seats.ExitDistance
+	local cands = { -look * d, right * d, -right * d, look * d }
+	local params
+	local okP = pcall(function()
+		params = OverlapParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { hrp.Parent, seat }
+	end)
+	for _, off in cands do
+		local pos = base + off
+		local free = true
+		if okP then
+			local okQ, parts = pcall(function()
+				return Workspace:GetPartBoundsInBox(CFrame.new(pos), Vector3.new(2.6, 4.6, 2.6), params)
+			end)
+			if okQ then
+				for _, p in parts do
+					if p.CanCollide then
+						free = false
+						break
+					end
+				end
+			end
+		end
+		if free then
+			return CFrame.new(pos) * CFrame.Angles(0, math.atan2(-off.X, -off.Z), 0)
+		end
+	end
+	return CFrame.new(base + Vector3.new(0, 0.7, 0)) -- sin hueco lateral: justo encima del asiento (cae al suelo)
+end
+
+function Interactions.stand(player)
+	local hrp, hum = hrpOf(player)
+	if not hrp or not hum then
+		return false
+	end
+	local now = os.clock()
+	local seat = hum.SeatPart
+	if not seat or not seatSet[seat] or seat.Occupant ~= hum then
+		return false -- no esta sentado en un asiento de este club (o el ocupante es otro)
+	end
+	if now - (lastSeatOf[player] and lastSeatOf[player].t or -100) < Config.Seats.StandMinInterval then
+		return false -- anti-spam: acaba de sentarse
+	end
+	standAt[player] = now
+	lastSeatOf[player] = { seat = seat, t = now }
+	-- libera SOLO la soldadura de ESTE ocupante con ESTE asiento
+	pcall(function()
+		hum.Sit = false
+	end)
+	local weld = seat:FindFirstChild("SeatWeld")
+	if weld then
+		weld:Destroy() -- un Seat solo tiene la soldadura de su unico ocupante, ya comprobado arriba
+	end
+	hrp.CFrame = exitCFrame(seat, hrp)
+	pcall(function()
+		hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+	end)
+	return true
+end
+
 local function setupSeats()
 	if not Config.Seats.Enabled then
 		return 0
@@ -77,6 +166,7 @@ local function setupSeats()
 	for _, d in club:GetDescendants() do
 		if d:IsA("Seat") then
 			n += 1
+			seatSet[d] = true
 			d.Disabled = false
 			local p = Instance.new("ProximityPrompt")
 			p.Name = "SitPrompt"
@@ -91,7 +181,17 @@ local function setupSeats()
 				sit(player, seat)
 			end)
 			seat:GetPropertyChangedSignal("Occupant"):Connect(function()
-				p.Enabled = (seat.Occupant == nil)
+				local occ = seat.Occupant
+				p.Enabled = (occ == nil)
+				-- quien se levanta (por salto, boton o lo que sea) queda en espera para no volver a sentarse al instante
+				if occ == nil and occupantOf[seat] then
+					local who = Players:GetPlayerFromCharacter(occupantOf[seat].Parent)
+					if who then
+						standAt[who] = os.clock()
+						lastSeatOf[who] = { seat = seat, t = os.clock() }
+					end
+				end
+				occupantOf[seat] = occ
 			end)
 		end
 	end
@@ -342,6 +442,8 @@ local function handleSocial(player, action, a, b)
 		end
 	elseif action == "StopDance" then
 		clearDance(player)
+	elseif action == "Stand" then
+		Interactions.stand(player)
 	elseif action == "Credential" then
 		Interactions.presentCredential(player, (type(a) == "string") and a or nil)
 	end
@@ -423,6 +525,8 @@ function Interactions.init(ctx)
 	Players.PlayerRemoving:Connect(function(player)
 		clearDance(player)
 		seatCooldown[player] = nil
+		standAt[player] = nil
+		lastSeatOf[player] = nil
 	end)
 	return { seats = seats, access = access, shopPoints = #shopPoints }
 end
