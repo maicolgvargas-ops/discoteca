@@ -91,6 +91,12 @@ local function guarded(name, fn, ...)
 	end
 end
 
+-- El baile se aplica en PreSimulation: el Animator reescribe Transform (AnimationConstraint/Motor6D) justo antes y la pose
+-- procedural debe ir DESPUES para no ser pisada.
+RunService.PreSimulation:Connect(function(dt)
+	guarded("Dance", Dance.step, dt)
+end)
+
 local slow = 0
 RunService.Heartbeat:Connect(function(dt)
 	guarded("Effects", Effects.step, dt)
@@ -99,7 +105,6 @@ RunService.Heartbeat:Connect(function(dt)
 	end)
 	guarded("Mood", Mood.step, dt)
 	guarded("Npcs", Npcs.step, dt)
-	guarded("Dance", Dance.step, dt)
 	slow += dt
 	if slow >= 0.5 then
 		slow = 0

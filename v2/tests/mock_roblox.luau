@@ -135,6 +135,28 @@ CFrame.__index = function(self, k)
 	end
 	return rawget(CFrame, k)
 end
+CFrame.__eq = function(a, b)
+	if a.__type ~= "CFrame" or b.__type ~= "CFrame" then return false end
+	if math.abs(a.px - b.px) > 1e-9 or math.abs(a.py - b.py) > 1e-9 or math.abs(a.pz - b.pz) > 1e-9 then return false end
+	for i = 1, 9 do
+		if math.abs(a.r[i] - b.r[i]) > 1e-9 then return false end
+	end
+	return true
+end
+-- aproximacion de CFrame:Lerp (mezcla lineal de la matriz + re-ortonormalizacion): suficiente para el simulador
+function CFrame.Lerp(a, b, t)
+	if t <= 0 then return a end
+	if t >= 1 then return b end
+	local r = {}
+	for i = 1, 9 do r[i] = a.r[i] + (b.r[i] - a.r[i]) * t end
+	local function norm(x, y, z) local l = math.sqrt(x * x + y * y + z * z) if l == 0 then return 1, 0, 0 end return x / l, y / l, z / l end
+	local c1x, c1y, c1z = norm(r[1], r[4], r[7])
+	local c2x, c2y, c2z = r[2], r[5], r[8]
+	local d = c1x * c2x + c1y * c2y + c1z * c2z
+	c2x, c2y, c2z = norm(c2x - d * c1x, c2y - d * c1y, c2z - d * c1z)
+	local c3x, c3y, c3z = c1y * c2z - c1z * c2y, c1z * c2x - c1x * c2z, c1x * c2y - c1y * c2x
+	return makeCF(a.px + (b.px - a.px) * t, a.py + (b.py - a.py) * t, a.pz + (b.pz - a.pz) * t, { c1x, c2x, c3x, c1y, c2y, c3y, c1z, c2z, c3z })
+end
 CFrame.__mul = function(a, b)
 	if b.__type == "Vector3" then
 		local r = a.r
@@ -287,6 +309,8 @@ local CLASSES = {
 	Model2 = { props = { "Name", "Parent" } },
 	Humanoid = { props = { "Name", "Parent", "RigType", "DisplayName", "NameDisplayDistance", "HealthDisplayType", "Health", "MaxHealth", "Sit", "WalkSpeed", "JumpPower", "JumpHeight", "SeatPart", "HipHeight", "PlatformStand", "BreakJointsOnDeath" } },
 	Motor6D = { props = { "Name", "Parent", "Part0", "Part1", "C0", "C1", "Transform" } },
+	AnimationConstraint = { props = { "Name", "Parent", "Part0", "Part1", "C0", "C1", "Transform", "Attachment0", "Attachment1", "IsKinematic", "MaxForce", "MaxTorque", "Enabled" } },
+	BallSocketConstraint = { props = { "Name", "Parent", "Attachment0", "Attachment1", "Enabled" } },
 	Weld = { props = { "Name", "Parent", "Part0", "Part1", "C0", "C1" } },
 	WeldConstraint = { props = { "Name", "Parent", "Part0", "Part1" } },
 	Tool = { props = { "Name", "Parent", "ToolTip", "CanBeDropped", "RequiresHandle", "GripPos", "GripForward", "GripUp", "GripRight", "Grip", "Enabled" } },
@@ -408,7 +432,11 @@ local RANGES = {
 }
 RANGES.Beam.Width0 = { 0, 100 }
 
+local READONLY = { AnimationConstraint = { C0 = true, C1 = true, Part0 = true, Part1 = true } }
 Inst.__newindex = function(self, k, v)
+	if READONLY[self.ClassName] and READONLY[self.ClassName][k] and not rawget(self, "_init") then
+		error(self.ClassName .. "." .. k .. " es de solo lectura (simulado: en Roblox esas propiedades de AnimationConstraint son de solo lectura)", 2)
+	end
 	if not self._allowed[k] then
 		error(self.ClassName .. "." .. tostring(k) .. " no es una propiedad valida (asignacion)", 2)
 	end
@@ -716,6 +744,16 @@ local heartbeatSignal = {
 		}
 	end,
 }
+local __preSim, __animHooks = {}, {}
+local preSimSignal = {
+	Connect = function(_, fn)
+		local entry = { fn = fn, active = true }
+		table.insert(__preSim, entry)
+		return { Disconnect = function() entry.active = false end }
+	end,
+}
+rawset(__runService, "PreSimulation", preSimSignal)
+rawset(__runService, "Stepped", preSimSignal)
 rawset(__runService, "Heartbeat", heartbeatSignal)
 rawset(__runService, "RenderStepped", heartbeatSignal)
 rawset(__runService, "IsRunning", function()
@@ -742,6 +780,13 @@ local function fireHeartbeat(dt)
 	end
 	for _, t in due do
 		t.fn()
+	end
+	-- orden de un fotograma de Roblox: animaciones (Animator) -> PreSimulation -> fisica -> Heartbeat
+	for _, fn in __animHooks do fn(dt) end
+	for _, entry in __preSim do
+		if entry.active then
+			entry.fn(dt)
+		end
 	end
 	for _, entry in __heartbeat do
 		if entry.active then
@@ -839,7 +884,27 @@ local function __motor(parent, name, p0, p1, c0)
 	m.Part1 = p1
 	m.C0 = c0 or CFrame.new(0, 0, 0)
 	m.C1 = CFrame.new(0, 0, 0)
+	m.Transform = CFrame.new(0, 0, 0)
 	m.Parent = parent
+	return m
+end
+
+-- articulacion del avatar R15 MODERNO: AnimationConstraint (C0/C1/Part0/Part1 de solo lectura) + BallSocketConstraint
+local function __acjoint(parent, name, p0, p1, c0)
+	local m = newInstance("AnimationConstraint")
+	rawset(m, "_init", true)
+	m.Name = name
+	m.Part0 = p0
+	m.Part1 = p1
+	m.C0 = c0 or CFrame.new(0, 0, 0)
+	m.C1 = CFrame.new(0, 0, 0)
+	rawset(m, "_init", nil)
+	m.Transform = CFrame.new(0, 0, 0)
+	m.IsKinematic = false
+	m.Parent = parent
+	local b = newInstance("BallSocketConstraint")
+	b.Name = name .. "BallSocket"
+	b.Parent = parent
 	return m
 end
 
@@ -862,6 +927,7 @@ local function __spawnCharacter(pl, pos, rigType)
 	local hum = __newWithSignals("Humanoid")
 	hum.Name = "Humanoid"
 	hum.RigType = (rigType == "R6") and Enum.HumanoidRigType.R6 or Enum.HumanoidRigType.R15
+	local joint = (rigType == "R15AC") and __acjoint or __motor
 	hum.Parent = ch
 	if rigType == "R6" then
 		local torso = part("Torso", Vector3.new(2, 2, 1), Vector3.new(0, 0, 0))
@@ -886,17 +952,17 @@ local function __spawnCharacter(pl, pos, rigType)
 		local llR = part("RightLowerLeg", Vector3.new(1, 1.2, 1), Vector3.new(0.5, -2.6, 0))
 		local ulL = part("LeftUpperLeg", Vector3.new(1, 1.2, 1), Vector3.new(-0.5, -1.6, 0))
 		local llL = part("LeftLowerLeg", Vector3.new(1, 1.2, 1), Vector3.new(-0.5, -2.6, 0))
-		__motor(lt, "Root", hrp, lt, CFrame.new(0, 0, 0))
-		__motor(ut, "Waist", lt, ut, CFrame.new(0, 0.2, 0))
-		__motor(head, "Neck", ut, head, CFrame.new(0, 0.8, 0))
-		__motor(uaR, "RightShoulder", ut, uaR, CFrame.new(1.2, 0.6, 0))
-		__motor(laR, "RightElbow", uaR, laR, CFrame.new(0, -0.6, 0))
-		__motor(uaL, "LeftShoulder", ut, uaL, CFrame.new(-1.2, 0.6, 0))
-		__motor(laL, "LeftElbow", uaL, laL, CFrame.new(0, -0.6, 0))
-		__motor(ulR, "RightHip", lt, ulR, CFrame.new(0.5, -0.2, 0))
-		__motor(llR, "RightKnee", ulR, llR, CFrame.new(0, -0.6, 0))
-		__motor(ulL, "LeftHip", lt, ulL, CFrame.new(-0.5, -0.2, 0))
-		__motor(llL, "LeftKnee", ulL, llL, CFrame.new(0, -0.6, 0))
+		joint(lt, "Root", hrp, lt, CFrame.new(0, 0, 0))
+		joint(ut, "Waist", lt, ut, CFrame.new(0, 0.2, 0))
+		joint(head, "Neck", ut, head, CFrame.new(0, 0.8, 0))
+		joint(uaR, "RightShoulder", ut, uaR, CFrame.new(1.2, 0.6, 0))
+		joint(laR, "RightElbow", uaR, laR, CFrame.new(0, -0.6, 0))
+		joint(uaL, "LeftShoulder", ut, uaL, CFrame.new(-1.2, 0.6, 0))
+		joint(laL, "LeftElbow", uaL, laL, CFrame.new(0, -0.6, 0))
+		joint(ulR, "RightHip", lt, ulR, CFrame.new(0.5, -0.2, 0))
+		joint(llR, "RightKnee", ulR, llR, CFrame.new(0, -0.6, 0))
+		joint(ulL, "LeftHip", lt, ulL, CFrame.new(-0.5, -0.2, 0))
+		joint(llL, "LeftKnee", ulL, llL, CFrame.new(0, -0.6, 0))
 	end
 	ch.PrimaryPart = hrp
 	ch.Parent = workspace

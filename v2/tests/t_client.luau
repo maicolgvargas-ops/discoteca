@@ -260,6 +260,113 @@ do -- ===================================================== baile
 	check("al echar a andar el baile se corta", me.Character:GetAttribute("AR_Dance") == nil)
 end
 
+do -- ===================================================== baile con el rig R15 MODERNO (AnimationConstraint)
+	local DP = require(Shared.DancePoses)
+	local Dance = require(clientScript.Dance)
+	-- el avatar real del usuario: R15 con AnimationConstraint (Root, Waist, Neck, Hombros, Codos, Caderas, Rodillas) y CERO Motor6D
+	__spawnCharacter(me, Vector3.new(0, 3, 40), "R15AC")
+	run(0.3, 0.1)
+	local ch = me.Character
+	local nM, nC = DP.describe(ch)
+	check("el avatar de prueba tiene CERO Motor6D y 11 AnimationConstraint (rig actual de Roblox)", nM == 0 and nC == 11, nM .. "/" .. nC)
+	local st0 = DP.new(ch)
+	check("DancePoses.new reconoce el rig con AnimationConstraint (antes devolvia nil): backend 'constraint' en 11 articulaciones", st0 ~= nil and st0.rig == "R15" and st0.backends.constraint == 11 and st0.backends.motor == 0)
+	check("...y en el rig clasico sigue usando Motor6D (backend 'motor')", (function()
+		local tmp = __makePlayer("Clasico", 777)
+		local c = __spawnCharacter(tmp, Vector3.new(80, 3, 40), "R15")
+		local st = DP.new(c)
+		local c6 = __spawnCharacter(__makePlayer("Seis", 778), Vector3.new(90, 3, 40), "R6")
+		local s6 = DP.new(c6)
+		return st.backends.motor == 11 and st.backends.constraint == 0 and s6.rig == "R6" and s6.backends.motor == 6
+	end)())
+	local function joint(name) for _, d in ch:GetDescendants() do if d.Name == name and d:IsA("AnimationConstraint") then return d end end end
+	local rs, ws, el = joint("RightShoulder"), joint("Waist"), joint("RightElbow")
+	local c0Before = rs.C0
+	-- simulacion del Animator: cada fotograma, ANTES de PreSimulation, escribe una pose de reposo (respiracion) en Transform
+	local animOn = true
+	local anim = function() if animOn and rs.Parent then rs.Transform = CFrame.Angles(0.05, 0, 0) ws.Transform = CFrame.Angles(0, 0.02, 0) end end
+	table.insert(__animHooks, anim)
+	-- boton Bailar -> Disco clasico (exactamente el flujo que fallaba)
+	local hud = gui("LaAlfombraRojaHud")
+	click(btn(hud, "Bailar"))
+	local panel = gui("LaAlfombraRojaBaile")
+	click(btn(panel, "Dance_disco"))
+	run(0.1, 0.033)
+	check("el servidor pone Character.AR_Dance = 'disco' en el avatar AnimationConstraint", ch:GetAttribute("AR_Dance") == "disco")
+	run(1.2, 0.033)
+	local tr = rs.Transform
+	check("el hombro se anima: Transform cambia (se escribe Transform, nunca C0 de solo lectura)", tr ~= CFrame.Angles(0.05, 0, 0) and rs.C0 == c0Before)
+	check("el codo y la raiz tambien se animan; la cintura (que este baile no toca) conserva la pose del Animator", el.Transform ~= CFrame.new(0, 0, 0) and joint("Root").Transform ~= CFrame.new(0, 0, 0) and ws.Transform == CFrame.Angles(0, 0.02, 0))
+	-- sin acumulacion: durante 4 s el Transform se mantiene acotado (no se compone sobre si mismo)
+	local maxT, maxAng = 0, 0
+	for _ = 1, 120 do
+		fireHeartbeat(1 / 30)
+		local t = rs.Transform
+		maxT = math.max(maxT, math.abs(t.px) + math.abs(t.py) + math.abs(t.pz))
+		local r = t.r
+		maxAng = math.max(maxAng, math.acos(math.clamp((r[1] + r[5] + r[9] - 1) / 2, -1, 1)))
+	end
+	check("sin acumulacion ni deriva: traslacion < 0.5 y giro < 2.6 rad durante 4 s (mezcla con el Animator, no suma)", maxT < 0.5 and maxAng < 2.6, maxT .. "/" .. maxAng)
+	-- sin Animator escribiendo (p. ej. sin animacion de reposo) tambien funciona y no se compone
+	animOn = false
+	local before = rs.Transform
+	run(0.5, 0.033)
+	check("sin Animator activo el baile sigue vivo (se detecta que Transform es el propio)", rs.Transform ~= before)
+	animOn = true
+	-- parar: limpieza completa
+	click(btn(hud, "Bailar"))
+	click(btn(panel, "Stop"))
+	animOn = false
+	run(1.0, 0.033)
+	check("al parar de bailar todas las articulaciones vuelven a Transform = identidad (sin residuos)", (function()
+		for _, d in ch:GetDescendants() do
+			if d:IsA("AnimationConstraint") and d.Transform ~= CFrame.new(0, 0, 0) then return false end
+		end
+		return ch:GetAttribute("AR_Dance") == nil
+	end)())
+	-- al echar a andar: el servidor corta y el cliente limpia
+	animOn = true
+	click(btn(hud, "Bailar"))
+	click(btn(panel, "Dance_ola"))
+	run(0.8, 0.033)
+	local moving = rs.Transform
+	ch:FindFirstChildOfClass("Humanoid").Running:_fire(10)
+	animOn = false
+	run(1.0, 0.033)
+	check("al caminar el baile se corta y las articulaciones se restauran (identidad)", ch:GetAttribute("AR_Dance") == nil and rs.Transform == CFrame.new(0, 0, 0) and moving ~= CFrame.new(0, 0, 0))
+	-- el personaje se destruye mientras baila: sin errores
+	animOn = true
+	click(btn(hud, "Bailar"))
+	click(btn(panel, "Dance_rebote"))
+	run(0.5, 0.033)
+	local oldCh = ch
+	ch:Destroy()
+	local okStep = pcall(function() for _ = 1, 30 do fireHeartbeat(1 / 30) Dance.step(1 / 30) end end)
+	check("si el personaje se destruye bailando no hay errores (articulaciones sin padre se ignoran)", okStep)
+	table.remove(__animHooks)
+	-- avatar con articulaciones NO reconocidas: aviso claro, sin errores ni silencio
+	local alien = __makePlayer("Raro", 888)
+	local ach = Instance.new("Model")
+	ach.Name = "Raro"
+	local ahrp = Instance.new("Part")
+	ahrp.Name = "HumanoidRootPart"
+	ahrp.CFrame = CFrame.new(5, 3, 40)
+	ahrp.Parent = ach
+	local ahum = Instance.new("Humanoid")
+	ahum.Parent = ach
+	ach.Parent = workspace
+	alien.Character = ach
+	__players.PlayerAdded:_fire(alien)
+	ach:SetAttribute("AR_Dance", "suave")
+	ach:SetAttribute("AR_DanceT0", workspace:GetServerTimeNow())
+	local okAlien = pcall(function() for _ = 1, 20 do fireHeartbeat(1 / 30) Dance.step(1 / 30) end end)
+	check("un avatar con rig desconocido no rompe nada (aviso con el recuento de Motor6D/AnimationConstraint)", okAlien)
+	__removePlayer(alien)
+	-- restaurar un personaje clasico para los bloques siguientes
+	__spawnCharacter(me, Vector3.new(0, 3, 40), "R15")
+	run(0.3, 0.1)
+end
+
 do -- ===================================================== NPC y asientos
 	local dancer = nil
 	for _, d in club:GetDescendants() do if d.Name == "Dancer_1" then dancer = d end end

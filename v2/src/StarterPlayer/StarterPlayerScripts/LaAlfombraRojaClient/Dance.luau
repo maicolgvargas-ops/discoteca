@@ -25,6 +25,7 @@ local gui, panel
 local active = {} -- [character] = { state, weight, id, t0, track }
 local acc = 0
 local mine = nil
+local reported = {}
 
 local function def(id)
 	for _, d in Config.Dance.Dances do
@@ -91,6 +92,21 @@ local function startChar(ch, id)
 		return
 	end
 	local state = DancePoses.new(ch)
+	if not state then
+		-- avatar sin articulaciones conocidas: nunca fallar en silencio
+		local m, c = DancePoses.describe(ch)
+		local key = ch:GetFullName()
+		if not reported[key] then
+			reported[key] = true
+			warn(string.format("[LaAlfombraRoja] baile procedural NO disponible para %s: %d Motor6D y %d AnimationConstraint, ninguno con los nombres de articulacion esperados (R6/R15). Usa Config.Dance.Dances[i].AnimationId con una animacion propia.", ch.Name, m, c))
+			if ch == player.Character then
+				Ui.toast("Tu avatar no admite el baile procedural. Avisa al creador del club.")
+			end
+		end
+	elseif not reported[ch] then
+		reported[ch] = true
+		print(string.format("[LaAlfombraRoja] baile: %s usa %s (%d Motor6D, %d AnimationConstraint)", ch.Name, state.rig, state.backends.motor, state.backends.constraint))
+	end
 	local a = { state = state, weight = 0, id = id, track = nil }
 	local animId = Util.normalizeAssetId(d.AnimationId)
 	if animId ~= "" then

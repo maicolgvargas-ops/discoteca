@@ -1,4 +1,4 @@
-# LA ALFOMBRA ROJA · v2.1.1
+# LA ALFOMBRA ROJA · v2.1.2
 
 Versión **nueva** (no sustituye a la v1 de la raíz del repositorio ni al `LaAlfombraRoja_v2.rbxlx` anterior, que se conserva tal cual). Conserva el nombre y logo de corona dorada, texto
 dorado/rojo, alfombra roja, estilo luxury, muebles blancos y negros brillantes, la bola de espejos corregida
@@ -8,6 +8,35 @@ siguen en x = -76,9 y el `ClubSpawn` es invisible (`Transparency = 1`).
 > **Estado real:** todo está hecho por código y probado **solo en un simulador** (Luau + una API de Roblox simulada).
 > **Nada se ha abierto ni probado en Roblox Studio.** Véase la [matriz de pruebas](#matriz-de-pruebas).
 > No se ha publicado nada ni hecho merge.
+
+## Novedades de la 2.1.2 (baile compatible con el rig R15 actual)
+**QA real aportada por el usuario sobre la 2.1.0/2.1.1 (no repetida por mí):** la cabina abre (`InputHoldBegin` 0,8 s) y el preset
+Discoteca oscura funciona desde la UI; los 2 focos siguieron al personaje (ambos `SpotLight.Enabled = true`, error horizontal final de
+cada `FollowTarget` 0,072 studs tras un `MoveTo` de 35,2 studs); en esa instancia, con calidad gráfica puesta en Manual 8 desde el menú
+(estaba en Automático), la medición de 6 s fue ≈ 60 FPS parado y en movimiento. **Eso no es una garantía:** otros equipos y zonas no
+están medidos, y el código no cambia ni fuerza la calidad gráfica.
+**Fallo confirmado y corregido:** *Bailar → Disco clásico* ponía `Character.AR_Dance = "disco"` pero el personaje no se animaba. El
+avatar real era R15 con **cero `Motor6D`**, 15 `AnimationConstraint` (Root, Waist, Neck, RightShoulder, LeftShoulder, LeftHip, RightHip,
+LeftElbow, RightElbow…) y 14 `BallSocketConstraint`; `DancePoses.new` solo buscaba `Motor6D` y devolvía `nil` sin avisar.
+- **Doble backend** (`DancePoses.luau`): detecta `Motor6D` **y** `AnimationConstraint` por nombre de articulación (R6 y R15 clásicos
+  siguen usando `Motor6D.C0`, sin cambios). Con `AnimationConstraint` **no se toca C0/C1/Part0/Part1 (solo lectura)**: se escribe
+  `Transform = C0⁻¹ · pose`, que es el canal que usa el Animator.
+- **Orden de fotograma:** el Animator reescribe `Transform` antes de la simulación, así que el baile se aplica en
+  `RunService.PreSimulation` (no en Heartbeat) y se **mezcla con la pose actual del Animator** (reposo/andar) según el peso, sin
+  acumularse; si el Animator no escribió ese fotograma se parte de la identidad.
+- **Limpieza:** al parar de bailar, al echar a andar (el servidor corta el baile) o al destruirse el personaje, `Motor6D.C0` vuelve
+  al valor original y `AnimationConstraint.Transform` a la identidad; las articulaciones sin padre se ignoran.
+- **Nunca más en silencio:** si un avatar no tiene articulaciones reconocidas, el cliente avisa por `warn` con el recuento de
+  Motor6D/AnimationConstraint y muestra un aviso al jugador; `print` indica qué backend usa cada avatar bailando. Sigue sin haber
+  ningún id de animación inventado (`Config.Dance.Dances[i].AnimationId` es opcional y está vacío).
+- **Documentación oficial:** desde este entorno **no pude abrir** las páginas de create.roblox.com (sin acceso de red a ese dominio);
+  me apoyé en los resúmenes de búsqueda de la referencia de `AnimationConstraint` (propiedad `Transform`, `C0/C1/Part0/Part1` de solo
+  lectura por compatibilidad, `IsKinematic`, `MaxForce/MaxTorque`) y en la evidencia del propio QA. Hay un reporte en DevForum de que
+  con *Server Authority* no se puede escribir `Transform` mientras suena una animación: este club no activa Server Authority, pero
+  si lo activas vuelve a probar el baile.
+- **Sin validar en Studio:** la corrección está probada solo en el simulador (rig R15 moderno simulado, con C0 de solo lectura que
+  lanza error si se escribe). No sé si los demás jugadores ven el baile en tu pantalla con constraints (los clientes remotos
+  animan localmente y el dueño del personaje replica sus piezas): **compruébalo con 2 clientes**.
 
 ## Novedades de la 2.1.1 (correcciones tras la primera prueba REAL en Studio)
 La prueba F5 del usuario mostró: escena y HUD correctos, pero el servidor **abortaba** con *"You must publish this place to the web
@@ -59,7 +88,7 @@ rojos **sin confirmar**. Cambios (todos **sin validar todavía en Studio**; solo
 
 | Archivo | Para qué |
 |---|---|
-| `LaAlfombraRoja_v2.1.1.rbxlx` | Place **listo para abrir** (versión actual): todos los Script, LocalScript y ModuleScript ya colocados. `LaAlfombraRoja_v2.1.0.rbxlx` y `LaAlfombraRoja_v2.rbxlx` son entregas anteriores y se conservan. |
+| `LaAlfombraRoja_v2.1.2.rbxlx` | Place **listo para abrir** (versión actual): todos los Script, LocalScript y ModuleScript ya colocados. `LaAlfombraRoja_v2.1.1.rbxlx`, `LaAlfombraRoja_v2.1.0.rbxlx` y `LaAlfombraRoja_v2.rbxlx` son entregas anteriores y se conservan. |
 | `src/` | Fuentes modulares `.luau` (estructura Rojo). Son idénticos a lo que lleva el `.rbxlx`. |
 | `default.project.json` | Proyecto Rojo opcional (`rojo build -o LaAlfombraRoja_v2.rbxlx`). |
 | `tools/make_place.py` | Regenera el `.rbxlx` desde `src/`. `tools/check_files.py` comprueba que coinciden. |
@@ -196,11 +225,12 @@ El inventario vive en un único registro por jugador (`DataStore`, clave `u<User
 | Mundo: navegación (cuerpos 1/2,5/3,5), pasillos, escaleras, luz, piezas flotantes, estilo | ✅ 156 + 156 (Equilibrado + Alta) | ❌ |
 | Láseres dentro del atrio, estrobo ≤ 3/s | ✅ | ❌ |
 | **Focos rojos de seguimiento**: apagados por defecto, límites de pista, suavidad, reparto entre personas, intensidad/velocidad, cero trabajo apagados o lejos, preset y su restablecimiento, oscuridad con mínimo 30 % del ambiente y 45 % en luces de acceso | ✅ | ❌ (aspecto real del haz, intensidad, sensación de oscuridad) |
+| **Baile con rig R15 moderno (AnimationConstraint, 0 Motor6D)**: reconocimiento, Transform sin tocar C0 (solo lectura), mezcla con Animator simulado sin acumulación, limpieza al parar/caminar/destruir, rig desconocido con aviso, R6 y R15 clásico intactos | ✅ (simulado) | ❌ (**solo QA del fallo; la corrección aún no se ha probado en Studio**) |
 | Arranque aislado de módulos del cliente, registro tardío de focos, luces de acceso vs relleno con oscuridad máxima, menos exposición (valores de `Lighting`/bloom) | ✅ | ❌ (**el aspecto real de la exposición no se ha visto**) |
-| Pruebas de sabotaje (29 mutaciones, todas detectadas) | ✅ | n/a |
+| Pruebas de sabotaje (32 mutaciones, todas detectadas) | ✅ | n/a |
 | Ejecución real, rendimiento/FPS, colisiones, red, multijugador | ❌ | ❌ |
 
-Totales actuales (simulador): servidor 133, persistencia 32, sin DataStore 14, Studio temporal 8 + 3 (producción), cliente 78, mundo 162 (×2 perfiles), archivos 14 comprobaciones, 29 sabotajes detectados. **Ninguno es una prueba en Studio.**
+Totales actuales (simulador): servidor 133, persistencia 32, sin DataStore 14, Studio temporal 8 + 3 (producción), cliente 90, mundo 162 (×2 perfiles), archivos 14 comprobaciones, 32 sabotajes detectados. **Ninguno es una prueba en Studio.**
 
 ### Puntos que **no** se han podido verificar y conviene mirar primero en Studio
 1. Que `Seat:Sit(humanoid)` siente al jugador y que los asientos quedan bien colocados.
@@ -213,7 +243,8 @@ Totales actuales (simulador): servidor 133, persistencia 32, sin DataStore 14, S
 8. Rendimiento (**sin medir**): ~5,9 mil partes y 146 luces (Equilibrado) / ~6,2 mil y 192 (Alta), sin medir.
 9. Aspecto de los focos rojos: ángulo (26°), brillo, anchura del haz y cuánto se ve la «niebla» del haz; ajusta `Config.Follow`.
 10. Que `Lighting.Ambient` local se vea bien con `Technology = Future` y que el nivel «Discoteca oscura» siga siendo legible en móvil.
-11. Concurrencia real del DataStore (dos servidores a la vez, rejoin rápido, `BindToClose` real).
+11. Baile: que el avatar R15 moderno (AnimationConstraint) baile bien en TU cliente y en el de otros jugadores, en pie y al reaparecer; que al andar vuelva a su postura; avatares con accesorios/capas.
+12. Concurrencia real del DataStore (dos servidores a la vez, rejoin rápido, `BindToClose` real).
 
 ## Ejecutar las pruebas (opcional, necesita el intérprete `luau`)
 ```

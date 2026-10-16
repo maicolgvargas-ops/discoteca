@@ -12,6 +12,18 @@
 	(el izquierdo usa -rz). Todos son bailes de discoteca normales y suaves.
 ]]
 
+--[[
+	BACKENDS DE ARTICULACION (el avatar R15 actual de Roblox ya NO usa Motor6D en muchos casos):
+	  * Motor6D (R6 y R15 clasico, y los NPC de este club): se cambia C0 (cambia la posicion de reposo; reversible).
+	  * AnimationConstraint (R15 moderno / "AvatarJointUpgrade"): C0, C1, Part0 y Part1 son de SOLO LECTURA; la pose se
+	    escribe en `Transform` (el mismo canal que usa el Animator). Como el Animator reescribe Transform cada
+	    fotograma ANTES de la simulacion, hay que aplicar la pose en RunService.PreSimulation (lo hace Dance.luau) y se
+	    mezcla con la pose actual del Animator (reposo/andar) segun el peso `w`.
+	Al parar o echar a andar se restaura: Motor6D.C0 = original, AnimationConstraint.Transform = identidad (el Animator
+	retoma el control en el siguiente fotograma).
+	No hay ningun id de animacion: las poses son matematicas.
+]]
+
 local DancePoses = {}
 
 DancePoses.IDS = { "suave", "disco", "rebote", "ola", "lateral" }
@@ -27,10 +39,15 @@ local MAP = {
 	},
 }
 
+local function isJoint(d)
+	return d:IsA("Motor6D") or d:IsA("AnimationConstraint")
+end
+
+-- Devuelve el estado o nil si el modelo no tiene articulaciones conocidas. state.backends = { motor = n, constraint = n }
 function DancePoses.new(model)
 	local byName = {}
 	for _, d in model:GetDescendants() do
-		if d:IsA("Motor6D") then
+		if isJoint(d) and byName[d.Name] == nil then
 			byName[d.Name] = d
 		end
 	end
@@ -38,14 +55,41 @@ function DancePoses.new(model)
 	if not rigType then
 		return nil
 	end
-	local state = { model = model, rig = rigType, joints = {} }
+	local state = { model = model, rig = rigType, joints = {}, backends = { motor = 0, constraint = 0 } }
 	for key, name in MAP[rigType] do
-		local m = byName[name]
-		if m then
-			state.joints[key] = { motor = m, base = m.C0 }
+		local j = byName[name]
+		if j then
+			local kind = j:IsA("AnimationConstraint") and "constraint" or "motor"
+			-- C0 es legible tambien en AnimationConstraint (solo lectura); si no lo fuese, se usa el attachment del padre
+			local okC, c0 = pcall(function()
+				return j.C0
+			end)
+			if not okC or c0 == nil then
+				local okA, a0 = pcall(function()
+					return j.Attachment0.CFrame
+				end)
+				c0 = okA and a0 or nil
+			end
+			if c0 ~= nil then
+				state.joints[key] = { inst = j, kind = kind, base = c0, last = nil }
+				state.backends[kind] += 1
+			end
 		end
 	end
 	return state
+end
+
+-- descripcion de las articulaciones de un modelo (para el diagnostico del cliente)
+function DancePoses.describe(model)
+	local m, c = 0, 0
+	for _, d in model:GetDescendants() do
+		if d:IsA("AnimationConstraint") then
+			c += 1
+		elseif d:IsA("Motor6D") then
+			m += 1
+		end
+	end
+	return m, c
 end
 
 local sin, abs, max = math.sin, math.abs, math.max
@@ -135,17 +179,32 @@ local function composed(base, r, w)
 	return c
 end
 
+local IDENT = CFrame.new(0, 0, 0)
+
 function DancePoses.apply(state, id, t, w)
 	if not state then
 		return
 	end
 	local p = pose(id, t, state.rig)
 	for key, j in state.joints do
-		local r = p[key]
-		if r then
-			j.motor.C0 = composed(j.base, r, w)
+		local inst = j.inst
+		if inst.Parent == nil then
+			state.joints[key] = nil -- articulacion destruida (el personaje se esta reconstruyendo)
+		elseif j.kind == "motor" then
+			local r = p[key]
+			inst.C0 = r and composed(j.base, r, w) or j.base
 		else
-			j.motor.C0 = j.base
+			local r = p[key]
+			if r then
+				-- Transform es relativo a C0: Transform = C0^-1 * (C0 con la pose). Se mezcla con lo que haya puesto el
+				-- Animator este fotograma (si no lo tocó, con la identidad).
+				local want = j.base:Inverse() * composed(j.base, r, 1)
+				local cur = inst.Transform
+				local animBase = (j.last ~= nil and cur == j.last) and IDENT or cur
+				local out = animBase:Lerp(want, w)
+				inst.Transform = out
+				j.last = out
+			end
 		end
 	end
 end
@@ -155,7 +214,14 @@ function DancePoses.reset(state)
 		return
 	end
 	for _, j in state.joints do
-		j.motor.C0 = j.base
+		if j.inst.Parent ~= nil then
+			if j.kind == "motor" then
+				j.inst.C0 = j.base
+			else
+				j.inst.Transform = IDENT
+				j.last = nil
+			end
+		end
 	end
 end
 
