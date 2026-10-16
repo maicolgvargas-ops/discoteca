@@ -8,7 +8,7 @@
 
 local Config = {
 	Name = "LaAlfombraRoja",
-	Version = "2.1.4",
+	Version = "2.1.5",
 
 	-- PERFIL GRAFICO: "Equilibrado" (por defecto, prioriza fluidez) o "Alta". Solo cambia lo que se
 	-- construye y cuanto trabajo hacen las animaciones locales: NO toca la calidad grafica del jugador

@@ -976,6 +976,43 @@ check("murcielagos (>= 14)", count("Bat%d+_Body$") >= 14, count("Bat%d+_Body$"))
 check("guirnaldas y calderos", count("Garland_Bulb0$") >= 3 and count("Cauldron_Pot$") >= 3)
 check("luces de llama con parpadeo (>= 15, o ninguna si el perfil las recorta)", #fx.flames >= (PROFILE.pruneMinor and 0 or 15), #fx.flames)
 
+-- ================= ORIENTACION DE LAS PANTALLAS (QA real: NowPlaying se veian NEGRAS desde la pista) =================
+local function faceNormal(part, face)
+	local look = part.CFrame.LookVector
+	local right = part.CFrame.RightVector
+	if face == Enum.NormalId.Front then return look end
+	if face == Enum.NormalId.Back then return -look end
+	if face == Enum.NormalId.Right then return right end
+	if face == Enum.NormalId.Left then return -right end
+	error("cara no soportada en la prueba")
+end
+for _, nm in { "NowPlayingL", "NowPlayingR" } do
+	local panel = find(nm)
+	local gui = panel and panel:FindFirstChild("ScreenGui")
+	local n = gui and faceNormal(panel, gui.Face)
+	local cam = Vector3.new(panel and panel.Position.X or 0, 12, -49) -- la camara del QA: en la pista, frente a la pantalla
+	local back = Vector3.new(panel and panel.Position.X or 0, 12, -95) -- detras de la pared (no debe verlo)
+	check(nm .. ": el SurfaceGui mira hacia el publico (+Z), no hacia la pared", gui ~= nil and n.Z > 0.99 and math.abs(n.X) < 1e-6 and (n.X * (cam.X - panel.Position.X) + n.Y * (cam.Y - panel.Position.Y) + n.Z * (cam.Z - panel.Position.Z)) > 20)
+	check(nm .. ": desde detras de la pared no se ve (cara opuesta)", gui ~= nil and (n.Z * (back.Z - panel.Position.Z)) < 0)
+	local tag = {}
+	for _, d in panel.ScreenGui:GetChildren() do tag[d.Name] = d end
+	local bars = 0
+	local flat = true
+	for _, d in panel.ScreenGui:GetChildren() do
+		if string.match(d.Name, "^Bar%d+$") then bars += 1 if d.Size.Y.Scale > 0.03 then flat = false end end
+	end
+	check(nm .. ": titulo, aviso y 24 barras presentes y las barras PLANAS al inicio (no simulan reproduccion)", tag.Title ~= nil and tag.Title.Text == "Sin música configurada" and tag.Caption ~= nil and tag.Note ~= nil and bars == 24 and flat, bars)
+end
+do
+	local mon = find("DJ_Monitor")
+	local gui = mon and mon:FindFirstChild("MonitorGui")
+	local n = gui and faceNormal(mon, gui.Face)
+	local table_ = find("DJ_ConsoleHit")
+	-- el DJ (operador) esta DETRAS de la mesa (z menor que el monitor), de espaldas a la pared del escenario y mirando a la pista (+Z)
+	local operator = Vector3.new(mon.Position.X, mon.Position.Y - 1, mon.Position.Z - 3)
+	check("monitor del DJ: su pantalla mira al OPERADOR (detras de la mesa), no al publico (revisado por separado)", gui ~= nil and n.Z < -0.99 and (n.X * (operator.X - mon.Position.X) + n.Y * (operator.Y - mon.Position.Y) + n.Z * (operator.Z - mon.Position.Z)) > 2 and table_ ~= nil and mon.Position.Z > table_.Position.Z - 3)
+end
+
 -- ================= FOCOS ROJOS DE SEGUIMIENTO (v3) =================
 local CSv = game:GetService("CollectionService")
 local fheads = CSv:GetTagged("AR_Follow")

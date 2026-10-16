@@ -1,4 +1,4 @@
-# LA ALFOMBRA ROJA · v2.1.4
+# LA ALFOMBRA ROJA · v2.1.5
 
 Versión **nueva** (no sustituye a la v1 de la raíz del repositorio ni al `LaAlfombraRoja_v2.rbxlx` anterior, que se conserva tal cual). Conserva el nombre y logo de corona dorada, texto
 dorado/rojo, alfombra roja, estilo luxury, muebles blancos y negros brillantes, la bola de espejos corregida
@@ -8,6 +8,23 @@ siguen en x = -76,9 y el `ClubSpawn` es invisible (`Transparency = 1`).
 > **Estado real:** todo está hecho por código y probado **solo en un simulador** (Luau + una API de Roblox simulada).
 > **Nada se ha abierto ni probado en Roblox Studio.** Véase la [matriz de pruebas](#matriz-de-pruebas).
 > No se ha publicado nada ni hecho merge.
+
+## Novedades de la 2.1.5 (pantallas «Ahora suena» orientadas al público)
+**QA real aportada por el usuario:** las dos pantallas `NowPlayingL/R` se veían **negras desde la pista**. `Extras.musicScreens` crea el
+panel sin rotación en z = −77,65 con `ScreenGui.Face = Front`, y su `LookVector` en ejecución es (0, 0, −1): la cara `Front` mira a la
+pared. Desde la cámara (−64, 12, −49) mirando a (−64, 12, −77,65) se veía negro aunque `Title.Text` era «Sin música configurada»; al poner
+solo en QA `ScreenGui.Face = Back` aparecían «AHORA SUENA», el título, el aviso y las barras.
+**Corrección:** ambas pantallas usan ahora `Face = Back` (normal = +Z, hacia el público). La geometría del panel, el marco dorado y los
+textos no cambian. Sin audio real las 24 barras siguen **planas** (el visualizador solo sube con `PlaybackLoudness` real; no simula
+reproducción).
+**Monitor del DJ revisado por separado, sin cambios:** `DJ_Monitor` usa `CFrame.lookAt` hacia −Z con `Face = Front`, es decir, su pantalla
+mira al **operador** (detrás de la mesa), no al público; es lo previsto, así que no se invierte. Una prueba lo fija.
+**Baile (confirmado por el usuario, sin tocar código):** el `RightShoulder` (AnimationConstraint) cambió 89 veces en 90 fotogramas y
+caminar 14,11 studs limpió `AR_Dance = nil`.
+**Pruebas (simulador):** la orientación se comprueba con la normal real de la cara (`Back` = −LookVector): normal +Z, visible desde la
+cámara del QA y no desde detrás de la pared; título/aviso/24 barras presentes y planas al inicio; el monitor del DJ mira al operador. Se
+sabotea revertir a `Front` y también invertir el monitor: ambos se detectan. **No probado en Studio** (que se vean bien y con el
+tamaño/legibilidad adecuados desde distintos puntos de la pista).
 
 ## Novedades de la 2.1.4 (salir del asiento)
 **QA real aportada por el usuario sobre la 2.1.2:** el shot gratuito se equipa en la hotbar, se sostiene y al activarlo se consume con
@@ -148,7 +165,7 @@ rojos **sin confirmar**. Cambios (todos **sin validar todavía en Studio**; solo
 
 | Archivo | Para qué |
 |---|---|
-| `LaAlfombraRoja_v2.1.4.rbxlx` | Place **listo para abrir** (versión actual): todos los Script, LocalScript y ModuleScript ya colocados. `LaAlfombraRoja_v2.1.3.rbxlx`, `LaAlfombraRoja_v2.1.2.rbxlx`, `LaAlfombraRoja_v2.1.1.rbxlx`, `LaAlfombraRoja_v2.1.0.rbxlx` y `LaAlfombraRoja_v2.rbxlx` son entregas anteriores y se conservan. |
+| `LaAlfombraRoja_v2.1.5.rbxlx` | Place **listo para abrir** (versión actual): todos los Script, LocalScript y ModuleScript ya colocados. `LaAlfombraRoja_v2.1.4.rbxlx`, `LaAlfombraRoja_v2.1.3.rbxlx`, `LaAlfombraRoja_v2.1.2.rbxlx`, `LaAlfombraRoja_v2.1.1.rbxlx`, `LaAlfombraRoja_v2.1.0.rbxlx` y `LaAlfombraRoja_v2.rbxlx` son entregas anteriores y se conservan. |
 | `src/` | Fuentes modulares `.luau` (estructura Rojo). Son idénticos a lo que lleva el `.rbxlx`. |
 | `default.project.json` | Proyecto Rojo opcional (`rojo build -o LaAlfombraRoja_v2.rbxlx`). |
 | `tools/make_place.py` | Regenera el `.rbxlx` desde `src/`. `tools/check_files.py` comprueba que coinciden. |
@@ -288,11 +305,12 @@ El inventario vive en un único registro por jugador (`DataStore`, clave `u<User
 | **Focos rojos de seguimiento**: apagados por defecto, límites de pista, suavidad, reparto entre personas, intensidad/velocidad, cero trabajo apagados o lejos, preset y su restablecimiento, oscuridad con mínimo 30 % del ambiente y 45 % en luces de acceso | ✅ | ❌ (aspecto real del haz, intensidad, sensación de oscuridad) |
 | **Baile con rig R15 moderno (AnimationConstraint, 0 Motor6D)**: reconocimiento, Transform sin tocar C0 (solo lectura), mezcla con Animator simulado sin acumulación, limpieza al parar/caminar/destruir, rig desconocido con aviso, R6 y R15 clásico intactos | ✅ (simulado) | ❌ (**solo QA del fallo; la corrección aún no se ha probado en Studio**) |
 | **Asientos**: sentarse con E, salir con botón/salto/`JumpRequest` validado en servidor, cooldowns, volver a sentarse, ocupados, no liberar a otros, asiento ajeno, spam (el mock reproduce el asiento anclado «pegado» observado en Studio) | ✅ 26 + 9 cliente (simulado) | ❌ (**la corrección aún no se ha probado en Studio**; causa raíz sin confirmar) |
+| **Pantallas NowPlayingL/R orientadas al público** (normal +Z, visibles desde la cámara del QA, barras planas sin audio) y monitor del DJ hacia el operador | ✅ (simulado) | ❌ (**la corrección aún no se ha visto en Studio**; evidencia previa del usuario con `Face = Back` solo en QA) |
 | Arranque aislado de módulos del cliente, registro tardío de focos, luces de acceso vs relleno con oscuridad máxima, menos exposición (valores de `Lighting`/bloom) | ✅ | ❌ (**el aspecto real de la exposición no se ha visto**) |
-| Pruebas de sabotaje (46 mutaciones, todas detectadas) | ✅ | n/a |
+| Pruebas de sabotaje (48 mutaciones, todas detectadas) | ✅ | n/a |
 | Ejecución real, rendimiento/FPS, colisiones, red, multijugador | ❌ | ❌ |
 
-Totales actuales (simulador): servidor 133, asientos 26, persistencia 33, libro de recibos 27, sin DataStore 14, Studio temporal 8 + 3 (producción), cliente 101, mundo 162 (×2 perfiles), archivos 14 comprobaciones, 46 sabotajes detectados. **Ninguno es una prueba en Studio.**
+Totales actuales (simulador): servidor 133, asientos 26, persistencia 33, libro de recibos 27, sin DataStore 14, Studio temporal 8 + 3 (producción), cliente 101, mundo 169 (×2 perfiles), archivos 14 comprobaciones, 48 sabotajes detectados. **Ninguno es una prueba en Studio.**
 
 ### Puntos que **no** se han podido verificar y conviene mirar primero en Studio
 1. Que `Seat:Sit(humanoid)` siente al jugador y que los asientos quedan bien colocados.

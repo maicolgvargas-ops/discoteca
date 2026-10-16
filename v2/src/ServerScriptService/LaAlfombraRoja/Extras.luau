@@ -202,7 +202,9 @@ function Extras.musicScreens(ctx)
 		local panel = P(f, tag, CFrame.new(x, 11.75, -77.65), Vector3.new(20, 11, 0.3), C.black, M.SmoothPlastic, { CanCollide = false, CastShadow = false, Reflectance = 0.08 })
 		local gui = Instance.new("SurfaceGui")
 		gui.Name = "ScreenGui"
-		gui.Face = Enum.NormalId.Front
+		-- el panel mira (LookVector) hacia la pared (-Z); el publico esta en +Z, asi que el SurfaceGui va en la cara TRASERA
+		-- (Back = +Z). Con Front las pantallas se veian negras desde la pista (QA real).
+		gui.Face = Enum.NormalId.Back
 		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 		gui.PixelsPerStud = 40
 		gui.LightInfluence = 0

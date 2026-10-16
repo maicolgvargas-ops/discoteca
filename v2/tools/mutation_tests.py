@@ -56,6 +56,8 @@ MUTATIONS = [
     ("asientos: sin anti-parpadeo sentar-levantar", SS + "Interactions.luau", "if now - (lastSeatOf[player] and lastSeatOf[player].t or -100) < Config.Seats.StandMinInterval then", "if false then", "seats"),
     ("asientos: la tecla de salto no pide Stand", CL + "init.client.luau", "game:GetService(\"UserInputService\").JumpRequest:Connect(requestStand)", "game:GetService(\"UserInputService\").JumpRequest:Connect(function() end)", "client"),
     ("asientos: sin limite de peticiones Stand en el cliente", CL + "init.client.luau", "if now - lastStand < 0.4 then", "if false then", "client"),
+    ("pantallas NowPlaying hacia la pared (negras desde la pista)", SS + "Extras.luau", "		gui.Face = Enum.NormalId.Back", "		gui.Face = Enum.NormalId.Front", "world"),
+    ("monitor del DJ invertido hacia el publico", SS + "Extras.luau", "CFrame.lookAt(Vector3.new(cx, yT + 2.5, z + 0.95), Vector3.new(cx, yT + 2.5, z - 3))", "CFrame.lookAt(Vector3.new(cx, yT + 2.5, z + 0.95), Vector3.new(cx, yT + 2.5, z + 6))", "world"),
     ("ClubSpawn visible", SS + "Build.luau", "ClubSpawn", "ClubSpawnX", "world"),
     ("cliente: sin limite de frecuencia en la tienda", CL + "ShopUi.luau", "if now - lastSend < 0.15 then", "if false then", "client"),
     ("cliente: precio borrador mostrado como real", CL + "ShopUi.luau", 'buy.Text = "Compra con Robux no disponible"\n\t\t\t\tpriceL.Text = "Precio pendiente (producto sin enlazar)."', 'buy.Text = "Comprar con Robux (400)"\n\t\t\t\tpriceL.Text = "400 R$"', "client"),
