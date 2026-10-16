@@ -775,6 +775,9 @@ function __collection:AddTag(inst, tag)
 	list[inst] = true
 	if self._added[tag] then self._added[tag]:_fire(inst) end
 end
+function __collection:HasTag(inst, tag)
+	return (self._tags[tag] or {})[inst] == true
+end
 function __collection:GetTagged(tag)
 	local out = {}
 	for inst in self._tags[tag] or {} do table.insert(out, inst) end

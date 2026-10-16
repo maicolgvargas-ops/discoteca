@@ -293,6 +293,55 @@ do -- ===================================================== NPC y asientos
 	check("de pie se oculta", stand.Visible == false)
 end
 
+do -- ===================================================== efectos locales: laseres y estrobo
+	local CS = game:GetService("CollectionService")
+	club.Control:SetAttribute("Lasers", true)
+	club.Control:SetAttribute("Strobe", true)
+	club.Control:SetAttribute("SpotMove", true)
+	workspace.CurrentCamera.CFrame = CFrame.new(0, 30, 100)
+	local lasers = CS:GetTagged("AR_Laser")
+	local worst, finiteOk = 0, true
+	local strobes = CS:GetTagged("AR_Strobe")
+	local rising, last, maxPerSec = {}, {}, 0
+	local anyRise = false
+	local t = 0
+	for _ = 1, 60 * 30 do
+		fireHeartbeat(1 / 30)
+		t += 1 / 30
+		for _, att in lasers do
+			local head = att.Parent
+			local tip = head.CFrame.Position + att.Position
+			if not (tip.X == tip.X and tip.Z == tip.Z and tip.Y == tip.Y) then finiteOk = false end
+			local out = math.max(math.abs(tip.X) - 40, -58 - tip.Z, tip.Z - 18, 0)
+			worst = math.max(worst, out)
+			if tip.Y < -1 or tip.Y > 46 then finiteOk = false end
+		end
+		for _, st in strobes do
+			local light = st:FindFirstChildOfClass("PointLight") or st:FindFirstChildOfClass("SpotLight")
+			local on = light and light.Enabled or false
+			if on and not last[st] then
+				rising[st] = rising[st] or {}
+				table.insert(rising[st], t)
+				anyRise = true
+			end
+			last[st] = on
+		end
+	end
+	for _, list in rising do
+		for _, a in list do
+			local n = 0
+			for _, b in list do if b >= a and b < a + 1 then n += 1 end end
+			maxPerSec = math.max(maxPerSec, n)
+		end
+	end
+	check("laseres: " .. #lasers .. " haces siempre dentro del hueco del atrio y a una altura valida (60 s)", #lasers >= 6 and worst < 0.01 and finiteOk, worst)
+	check("estrobo: >= 10 focos, enciende en rafagas y cada foco da como maximo 3 destellos por segundo", #strobes >= 10 and anyRise and maxPerSec <= 3, maxPerSec)
+	club.Control:SetAttribute("Lasers", false)
+	club.Control:SetAttribute("Strobe", false)
+	club.Control:SetAttribute("SpotMove", false)
+	run(0.5, 0.05)
+end
+
 do -- ===================================================== reglas de seguridad / rendimiento
 	local function srcOf(m) return rawget(m, "_module") and "" or "" end
 	check("el cliente no crea chat propio: usa TextChatService (CanUserChatAsync consultado)", true)
