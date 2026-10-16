@@ -53,7 +53,25 @@ local sin, abs, max = math.sin, math.abs, math.max
 -- devuelve { joint = { rx, ry, rz, dx, dy } } para el baile id en el instante t
 local function pose(id, t, rig)
 	local p = {}
-	if id == "disco" then
+	if id == "guardia" then
+		-- de pie, brazos recogidos al frente, respiracion lenta (NPC, no seleccionable por jugadores)
+		local b = t * 1.2
+		p.root = { dy = 0.012 * sin(b), ry = 0.05 * sin(b * 0.4) }
+		p.shR = { rz = 0.12, rx = 0.25 }
+		p.shL = { rz = -0.12, rx = 0.25 }
+		p.elR = { rx = -0.9 }
+		p.elL = { rx = -0.9 }
+		p.neck = { ry = 0.35 * sin(b * 0.35) }
+	elseif id == "barra" then
+		-- bartender: movimiento tranquilo de manos como si preparase una copa
+		local b = t * 1.6
+		p.root = { ry = 0.1 * sin(b * 0.5), dy = 0.01 * sin(b) }
+		p.shR = { rx = 0.5 + 0.25 * sin(b), rz = 0.2 }
+		p.shL = { rx = 0.5 + 0.25 * sin(b + 2.2), rz = -0.2 }
+		p.elR = { rx = -0.7 + 0.2 * sin(b) }
+		p.elL = { rx = -0.7 + 0.2 * sin(b + 2.2) }
+		p.neck = { ry = 0.2 * sin(b * 0.4), rx = 0.1 }
+	elseif id == "disco" then
 		local b = t * 4
 		p.root = { dy = 0.07 * abs(sin(b)), ry = 0.12 * sin(b * 0.5) }
 		p.shR = { rz = 1.0 + 1.0 * max(0, sin(b)), rx = 0.1 }
