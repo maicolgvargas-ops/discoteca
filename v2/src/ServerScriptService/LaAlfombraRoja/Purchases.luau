@@ -27,7 +27,6 @@ local Purchases = {}
 
 local handlers = {} -- [productId] = function(player, receiptInfo) -> "granted" | "duplicate" | "failed"
 local pending = {} -- [player] = { itemId, tier, remaining, t }
-local studioCounter = 0
 local nearShop = function(_player)
 	return true
 end
@@ -175,9 +174,7 @@ function Purchases.advance(player)
 	end
 	if Purchases.studioMode() then
 		-- prueba en Studio: GRATIS, sin Robux ni recibo de Roblox
-		studioCounter += 1
-		local pid = string.format("STUDIO-%d-%d-%d", player.UserId, studioCounter, os.time())
-		local status = Inventory.grant(player, product.Grant, pid)
+		local status = Inventory.grant(player, product.Grant, nil, { test = true }) -- prueba gratis: NO es un recibo pagado
 		if status == "failed" then
 			pending[player] = nil
 			toast(player, "No se pudo guardar (prueba Studio).")
@@ -186,9 +183,11 @@ function Purchases.advance(player)
 		Purchases.advance(player)
 		return
 	end
-	if Inventory.persistence() ~= "datastore" then
+	-- solo se ofrece un cobro NUEVO si podemos garantizar guardar el recibo (DataStore real, alquiler propio, hueco en el libro)
+	local canPay, why = Inventory.canTakePayment(player)
+	if not canPay then
 		pending[player] = nil
-		toast(player, "Compras con Robux bloqueadas: no hay persistencia real en este servidor.")
+		toast(player, why == "ledger_full" and "Compras con Robux bloqueadas: el libro de recibos esta lleno. Avisa al creador." or "Compras con Robux bloqueadas: no se puede garantizar el guardado en este servidor.")
 		return
 	end
 	MarketplaceService:PromptProductPurchase(player, product.ProductId)

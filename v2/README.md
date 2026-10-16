@@ -1,4 +1,4 @@
-# LA ALFOMBRA ROJA · v2.1.2
+# LA ALFOMBRA ROJA · v2.1.3
 
 Versión **nueva** (no sustituye a la v1 de la raíz del repositorio ni al `LaAlfombraRoja_v2.rbxlx` anterior, que se conserva tal cual). Conserva el nombre y logo de corona dorada, texto
 dorado/rojo, alfombra roja, estilo luxury, muebles blancos y negros brillantes, la bola de espejos corregida
@@ -8,6 +8,37 @@ siguen en x = -76,9 y el `ClubSpawn` es invisible (`Transparency = 1`).
 > **Estado real:** todo está hecho por código y probado **solo en un simulador** (Luau + una API de Roblox simulada).
 > **Nada se ha abierto ni probado en Roblox Studio.** Véase la [matriz de pruebas](#matriz-de-pruebas).
 > No se ha publicado nada ni hecho merge.
+
+## Novedades de la 2.1.3 (revisión estática antes de habilitar Robux: libro de recibos duradero)
+**Problema encontrado:** `Inventory.recordReceipt` borraba los `PurchaseId` más antiguos al superar `MaxReceipts = 300`. Un callback
+repetido de Roblox de un recibo antiguo habría podido **conceder otra vez** lo ya pagado.
+**Corrección (sin cambiar otras funciones; las compras reales siguen desactivadas, `ProductId = 0`):**
+- **Libro de recibos duradero y sin purga.** Todos los `PurchaseId` pagados se guardan en el mismo registro y en la **misma escritura
+  atómica** (`UpdateAsync` con alquiler de sesión) que los vales/artículos: o se guardan los dos o ninguno. No hay escrituras
+  separadas ni protocolo de recuperación que hacer. Los guardados/renovaciones/liberaciones hacen la **unión** con el libro
+  almacenado, así que nunca se pierde un id.
+- **Tope con fallo cerrado, nunca purga silenciosa.** `Config.Data.MaxReceipts = 20000` (≤ 64 caracteres por id ⇒ ~1,6 MB, muy por
+  debajo de los 4 MB de una clave). Al llegar al tope: un recibo **nuevo** devuelve `NotProcessedYet` (no se concede y Roblox lo
+  reintenta), un recibo **ya conocido** sigue devolviendo `PurchaseGranted` sin conceder otra vez, y se avisa por `warn` (también al
+  90 %, `ReceiptWarnFraction`). Un `PurchaseId` vacío o de más de `MaxReceiptIdLength = 64` también falla cerrado.
+- **No se ofrecen cobros nuevos si no se puede garantizar guardar.** `Inventory.canTakePayment` exige DataStore real (no memoria),
+  sesión cargada con alquiler propio y hueco en el libro; si no, la tienda no llama a `PromptProductPurchase` y avisa al jugador.
+- **Recibos de prueba Studio separados de los pagados.** Las concesiones gratis de `StudioTestMode` ya **no llevan `PurchaseId`
+  ni entran en el libro**: solo suman al contador `tg` y solo se admiten con `RunService:IsStudio()`. Un id con prefijo `STUDIO-`
+  nunca se acepta como recibo. Además, **en Studio se usa siempre otro DataStore**
+  (`Config.Data.StudioStoreName = "AlfombraRoja_Inventory_v2_STUDIO"`), así que las pruebas jamás tocan los registros de
+  producción.
+- **Migración:** los registros antiguos (con `receiptOrder`, hasta 300 ids) se cargan tal cual; `rcount` se recalcula del propio
+  libro y `receiptOrder` se descarta en el siguiente guardado, sin perder ningún id. **Atención:** los recibos que la versión
+  anterior ya hubiera purgado (si algún jugador superó 300 compras reales con ella) no se pueden recuperar; con
+  `ProductId = 0` no hay ninguno.
+- **Antes de habilitar Robux**, además: crea los Developer Products, pega los `ProductId` en `Catalog.Products`, prueba un cobro real
+  con una cuenta de prueba en un servidor publicado y revisa el `warn` de libro lleno en tu monitorización. El tope de 20000
+  recibos por jugador es una decisión de diseño: si lo vieras acercarse, hay que migrar el libro (p. ej. a un OrderedDataStore/segundo
+  registro con protocolo de recuperación) **antes** de subirlo.
+- Pruebas (simulador): 350 recibos únicos (> 300) con repetición del primero y de los intermedios sin incrementar saldo; rejoin;
+  callback reintentado; fallo del DataStore a mitad; libro lleno exacto (nuevo → `NotProcessedYet`, conocido → confirmado, sin
+  prompts); id enorme y prefijo de prueba; registro antiguo con 300 ids; separación de almacenes Studio/producción.
 
 ## Novedades de la 2.1.2 (baile compatible con el rig R15 actual)
 **QA real aportada por el usuario sobre la 2.1.0/2.1.1 (no repetida por mí):** la cabina abre (`InputHoldBegin` 0,8 s) y el preset
@@ -88,7 +119,7 @@ rojos **sin confirmar**. Cambios (todos **sin validar todavía en Studio**; solo
 
 | Archivo | Para qué |
 |---|---|
-| `LaAlfombraRoja_v2.1.2.rbxlx` | Place **listo para abrir** (versión actual): todos los Script, LocalScript y ModuleScript ya colocados. `LaAlfombraRoja_v2.1.1.rbxlx`, `LaAlfombraRoja_v2.1.0.rbxlx` y `LaAlfombraRoja_v2.rbxlx` son entregas anteriores y se conservan. |
+| `LaAlfombraRoja_v2.1.3.rbxlx` | Place **listo para abrir** (versión actual): todos los Script, LocalScript y ModuleScript ya colocados. `LaAlfombraRoja_v2.1.2.rbxlx`, `LaAlfombraRoja_v2.1.1.rbxlx`, `LaAlfombraRoja_v2.1.0.rbxlx` y `LaAlfombraRoja_v2.rbxlx` son entregas anteriores y se conservan. |
 | `src/` | Fuentes modulares `.luau` (estructura Rojo). Son idénticos a lo que lleva el `.rbxlx`. |
 | `default.project.json` | Proyecto Rojo opcional (`rojo build -o LaAlfombraRoja_v2.rbxlx`). |
 | `tools/make_place.py` | Regenera el `.rbxlx` desde `src/`. `tools/check_files.py` comprueba que coinciden. |
@@ -213,6 +244,7 @@ El inventario vive en un único registro por jugador (`DataStore`, clave `u<User
 | Catálogo y modelos 3D (botellas/copas: piezas, líquido, etiquetas, contraste) | ✅ | ❌ |
 | Inventario: carga/guardado, vales, canje, equipar, sorbos, fallos de DataStore, solo lectura | ✅ | ❌ |
 | **Sin DataStore: `GetDataStore` lanza error** (servidor no aborta, inventario/cobros bloqueados, entrada/cabina/luces siguen) y **modo Studio temporal** (memoria, sin cobros, ignorado fuera de Studio) | ✅ 14 + 11 | ❌ (Studio real) |
+| **Libro de recibos duradero**: >300 recibos únicos, repetir el primero/intermedios sin incrementar saldo, rejoin, reintento tras fallo, tope exacto con fallo cerrado (nuevo → NotProcessedYet, conocido → confirmado, sin prompts), id inválido, migración de registros antiguos, recibos de prueba Studio fuera del libro y almacén de pruebas separado | ✅ 27 + 1 (simulado) | ❌ (cobros reales: **nunca probados**, siguen desactivados) |
 | **Alquiler de sesión**: toma/renovación/liberación, otro servidor con alquiler vivo o caducado, alquiler perdido a mitad, fallos al salir, cierre del servidor, recibos atómicos e idempotentes | ✅ 32 (simulado, un hilo) | ❌ (servidores reales) |
 | Compras: `ProcessReceipt`, idempotencia, no confirmar si falla el guardado, producto desconocido, recibos mal formados, modo Studio | ✅ | ❌ |
 | Música: lista blanca, índices inválidos, volumen, siguiente/anterior, fin de pista, estado vacío | ✅ | ❌ |
@@ -227,10 +259,10 @@ El inventario vive en un único registro por jugador (`DataStore`, clave `u<User
 | **Focos rojos de seguimiento**: apagados por defecto, límites de pista, suavidad, reparto entre personas, intensidad/velocidad, cero trabajo apagados o lejos, preset y su restablecimiento, oscuridad con mínimo 30 % del ambiente y 45 % en luces de acceso | ✅ | ❌ (aspecto real del haz, intensidad, sensación de oscuridad) |
 | **Baile con rig R15 moderno (AnimationConstraint, 0 Motor6D)**: reconocimiento, Transform sin tocar C0 (solo lectura), mezcla con Animator simulado sin acumulación, limpieza al parar/caminar/destruir, rig desconocido con aviso, R6 y R15 clásico intactos | ✅ (simulado) | ❌ (**solo QA del fallo; la corrección aún no se ha probado en Studio**) |
 | Arranque aislado de módulos del cliente, registro tardío de focos, luces de acceso vs relleno con oscuridad máxima, menos exposición (valores de `Lighting`/bloom) | ✅ | ❌ (**el aspecto real de la exposición no se ha visto**) |
-| Pruebas de sabotaje (32 mutaciones, todas detectadas) | ✅ | n/a |
+| Pruebas de sabotaje (38 mutaciones, todas detectadas) | ✅ | n/a |
 | Ejecución real, rendimiento/FPS, colisiones, red, multijugador | ❌ | ❌ |
 
-Totales actuales (simulador): servidor 133, persistencia 32, sin DataStore 14, Studio temporal 8 + 3 (producción), cliente 90, mundo 162 (×2 perfiles), archivos 14 comprobaciones, 32 sabotajes detectados. **Ninguno es una prueba en Studio.**
+Totales actuales (simulador): servidor 133, persistencia 33, libro de recibos 27, sin DataStore 14, Studio temporal 8 + 3 (producción), cliente 90, mundo 162 (×2 perfiles), archivos 14 comprobaciones, 38 sabotajes detectados. **Ninguno es una prueba en Studio.**
 
 ### Puntos que **no** se han podido verificar y conviene mirar primero en Studio
 1. Que `Seat:Sit(humanoid)` siente al jugador y que los asientos quedan bien colocados.
@@ -250,7 +282,7 @@ Totales actuales (simulador): servidor 133, persistencia 32, sin DataStore 14, S
 ```
 python3 tools/assemble_tests.py tests/t_server.luau /tmp/s.luau && luau /tmp/s.luau
 python3 tools/assemble_tests.py tests/t_persist.luau /tmp/p.luau && luau /tmp/p.luau
-for t in nostore studiotemp studiotemp_prod; do python3 tools/assemble_tests.py tests/t_$t.luau /tmp/$t.luau && luau /tmp/$t.luau; done
+for t in ledger nostore studiotemp studiotemp_prod; do python3 tools/assemble_tests.py tests/t_$t.luau /tmp/$t.luau && luau /tmp/$t.luau; done
 python3 tools/assemble_tests.py tests/t_client.luau /tmp/c.luau && luau /tmp/c.luau
 python3 tools/assemble_tests.py tests/t_world.luau  /tmp/w.luau && luau /tmp/w.luau
 python3 tools/assemble_tests.py tests/t_world.luau  /tmp/wa.luau --set 'Quality="Alta"' && luau /tmp/wa.luau

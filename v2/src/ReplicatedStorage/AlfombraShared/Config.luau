@@ -8,7 +8,7 @@
 
 local Config = {
 	Name = "LaAlfombraRoja",
-	Version = "2.1.2",
+	Version = "2.1.3",
 
 	-- PERFIL GRAFICO: "Equilibrado" (por defecto, prioriza fluidez) o "Alta". Solo cambia lo que se
 	-- construye y cuanto trabajo hacen las animaciones locales: NO toca la calidad grafica del jugador
@@ -103,7 +103,16 @@ local Config = {
 		StoreName = "AlfombraRoja_Inventory_v2",
 		AutosaveSeconds = 60,
 		Retries = 4,
-		MaxReceipts = 300, -- PurchaseIds recordados por jugador
+		-- LIBRO DE RECIBOS (ledger) duradero: TODOS los PurchaseId pagados se guardan en el mismo registro y en la misma
+		-- escritura atomica que el inventario. NUNCA se purgan. Tope de seguridad (falla CERRADO): si se alcanza, los
+		-- recibos NUEVOS devuelven NotProcessedYet y no se ofrecen compras nuevas; los ya conocidos siguen devolviendo
+		-- "duplicado" (se confirman sin volver a conceder). 20000 x (<= 64 caracteres + marca de tiempo) ~ 1,6 MB, muy por
+		-- debajo de los 4 MB que admite una clave de DataStore.
+		MaxReceipts = 20000,
+		MaxReceiptIdLength = 64, -- un PurchaseId de Roblox es un GUID de 36 caracteres; mas largo = se rechaza (cierra fallo)
+		ReceiptWarnFraction = 0.9, -- aviso en consola al llegar a esta fraccion del tope
+		-- En Studio se usa SIEMPRE otro DataStore para que las pruebas no contaminen los registros de produccion.
+		StudioStoreName = "AlfombraRoja_Inventory_v2_STUDIO",
 		-- BLOQUEO DE SESION (lease) entre servidores: el servidor que carga a un jugador toma un "alquiler"
 		-- dentro de su propio registro (UpdateAsync). Nadie mas puede escribir mientras dure.
 		LeaseSeconds = 120, -- duracion del alquiler; si un servidor cae, caduca solo

@@ -347,9 +347,10 @@ do -- ===================================================== inventario, compras,
 	__isStudio = true
 	fire("Shop", p3, "Buy", "shot_tequila", 2)
 	check("en Studio con StudioTestMode: concede GRATIS 2 shots, sin pedir Robux", Inventory.get(p3).items.shot_tequila == 2 and #__market._prompts == n0 + 2)
-	local sid = nil
-	for id in __ds.stores[DS]["u303"].receipts do sid = id end
-	check("los recibos de prueba llevan el prefijo STUDIO- (no son recibos de Roblox)", sid ~= nil and string.sub(sid, 1, 7) == "STUDIO-")
+	local rec303 = __ds.stores[DS]["u303"]
+	local nrec = 0
+	for _ in rec303.receipts do nrec += 1 end
+	check("las concesiones de prueba Studio NO entran en el libro de recibos pagados (solo suman al contador tg)", nrec == 0 and rec303.tg == 2, nrec .. "/" .. tostring(rec303.tg))
 	Config.Purchases.StudioTestMode = false
 	__isStudio = false
 	run(2, 0.5)

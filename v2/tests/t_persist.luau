@@ -35,6 +35,7 @@ local NOT, OK = Enum.ProductPurchaseDecision.NotProcessedYet, Enum.ProductPurcha
 Catalog.Products[1].ProductId = 555 -- ProductId de PRUEBA solo en memoria
 
 do -- ===================================================== alquiler al cargar / renovar / liberar
+	check("fuera de Studio se usa el DataStore de PRODUCCION (nombre normal)", Inventory.storeName() == Config.Data.StoreName and Inventory.storeName() ~= Config.Data.StudioStoreName)
 	local p = makeP("Ana", 101)
 	local r = rec(101)
 	check("al cargar se toma el alquiler dentro del registro (lock.o y caducidad futura)", r and r.lock and type(r.lock.o) == "string" and r.lock.e > os.time(), r and r.lock and r.lock.e)
@@ -53,7 +54,7 @@ do -- ===================================================== alquiler al cargar /
 end
 
 do -- ===================================================== otro servidor tiene el alquiler
-	__ds.stores[DS]["u202"] = { v = 1, items = { champana_dom = 2 }, vouchers = {}, open = {}, equipped = "", receipts = {}, receiptOrder = {}, credential = false, lock = { o = "OTRO-SERVIDOR", e = os.time() + 500 } }
+	__ds.stores[DS]["u202"] = { v = 1, items = { champana_dom = 2 }, vouchers = {}, open = {}, equipped = "", receipts = {}, credential = false, lock = { o = "OTRO-SERVIDOR", e = os.time() + 500 } }
 	local t0 = os.clock()
 	local p = makeP("Beto", 202)
 	check("espera como mucho LockWaitSeconds y despues queda bloqueado en solo lectura", os.clock() - t0 >= Config.Data.LockWaitSeconds - 0.5 and os.clock() - t0 <= Config.Data.LockWaitSeconds + Config.Data.LockRetrySeconds + 1 and Inventory.get(p) == nil and Inventory.snapshot(p).blocked == true and Inventory.snapshot(p).readOnly == true, os.clock() - t0)
@@ -71,11 +72,11 @@ do -- ===================================================== otro servidor tiene 
 end
 
 do -- ===================================================== alquiler caducado / servidor caido
-	__ds.stores[DS]["u303"] = { v = 1, items = { tequila_donjulio = 1 }, vouchers = {}, open = {}, equipped = "", receipts = {}, receiptOrder = {}, credential = false, lock = { o = "SERVIDOR-CAIDO", e = os.time() - 10 } }
+	__ds.stores[DS]["u303"] = { v = 1, items = { tequila_donjulio = 1 }, vouchers = {}, open = {}, equipped = "", receipts = {}, credential = false, lock = { o = "SERVIDOR-CAIDO", e = os.time() - 10 } }
 	local p = makeP("Caro", 303)
 	check("un alquiler ya caducado (servidor caido) se toma al instante y se conservan los datos", Inventory.get(p) ~= nil and Inventory.get(p).items.tequila_donjulio == 1 and rec(303).lock.o ~= "SERVIDOR-CAIDO")
 	leave(p)
-	__ds.stores[DS]["u304"] = { v = 1, items = {}, vouchers = {}, open = {}, equipped = "", receipts = {}, receiptOrder = {}, credential = false, lock = { o = "OTRO", e = os.time() + 60 } }
+	__ds.stores[DS]["u304"] = { v = 1, items = {}, vouchers = {}, open = {}, equipped = "", receipts = {}, credential = false, lock = { o = "OTRO", e = os.time() + 60 } }
 	local q = makeP("Dani", 304)
 	check("alquiler que caduca en 60 s: primero bloqueado...", Inventory.get(q) == nil and Inventory.snapshot(q).blocked == true)
 	run(70, 1)

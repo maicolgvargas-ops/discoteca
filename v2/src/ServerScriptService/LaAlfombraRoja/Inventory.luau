@@ -5,7 +5,8 @@
 	  items     { [itemId] = unidades }          vouchers { [tier] = vales }
 	  open      { [itemId] = sorbos restantes de la unidad abierta }
 	  equipped  itemId o ""                       credential { id, issued }  (carnet FICTICIO del club)
-	  receipts  { [PurchaseId] = os.time() } + receiptOrder (ultimos N)       v = version
+	  receipts  { [PurchaseId] = os.time() }  LIBRO DE RECIBOS PAGADOS, duradero y SIN purga   rcount = n recibos   tg = concesiones de prueba Studio
+	  v = version
 
 	Garantias:
 	  * BLOQUEO DE SESION (lease) entre servidores: al cargar, el servidor toma un "alquiler" dentro del propio
@@ -40,6 +41,7 @@ local Remotes = require(script.Parent.Remotes)
 local Inventory = {}
 
 local store
+local storeNameUsed = nil
 local storeKind = "none" -- "datastore" | "memory" (modo Studio temporal) | "none" (sin persistencia)
 local sessions = {} -- [player] = session
 local TOOL_ATTR = "AR_DrinkTool"
@@ -88,12 +90,15 @@ local function acquireStore()
 		end
 		warn("[Inventory] Config.Data.StudioTemporaryMode esta activo pero esto NO es Studio: se ignora (no hay modo temporal en produccion).")
 	end
+	-- en Studio SIEMPRE otro almacen: las pruebas jamas tocan los registros de produccion
+	local storeName = isStudio() and Config.Data.StudioStoreName or Config.Data.StoreName
 	local ok, res = pcall(function()
-		return DataStoreService:GetDataStore(Config.Data.StoreName)
+		return DataStoreService:GetDataStore(storeName)
 	end)
 	if ok and res ~= nil then
 		store = res
 		storeKind = "datastore"
+		storeNameUsed = storeName
 		return true
 	end
 	storeKind = "none"
@@ -104,13 +109,17 @@ local function acquireStore()
 	return false
 end
 
+function Inventory.storeName()
+	return storeNameUsed
+end
+
 -- "datastore" | "memory" | "none"
 function Inventory.persistence()
 	return storeKind
 end
 
 local function newData()
-	return { v = 1, items = {}, vouchers = {}, open = {}, equipped = "", receipts = {}, receiptOrder = {}, credential = false }
+	return { v = 1, items = {}, vouchers = {}, open = {}, equipped = "", receipts = {}, rcount = 0, tg = 0, credential = false }
 end
 
 local function normalize(d)
@@ -118,10 +127,19 @@ local function normalize(d)
 		d = newData()
 	end
 	d.v = 1
-	for _, k in { "items", "vouchers", "open", "receipts", "receiptOrder" } do
+	for _, k in { "items", "vouchers", "open", "receipts" } do
 		if type(d[k]) ~= "table" then
 			d[k] = {}
 		end
+	end
+	d.receiptOrder = nil -- campo antiguo (v2.0-v2.1.2): el orden ya no se usa porque nada se purga
+	local n = 0
+	for _ in d.receipts do
+		n += 1
+	end
+	d.rcount = n -- siempre recalculado del propio libro: no puede desincronizarse
+	if type(d.tg) ~= "number" then
+		d.tg = 0
 	end
 	if type(d.equipped) ~= "string" then
 		d.equipped = ""
@@ -267,10 +285,10 @@ local function unlock(s)
 			end
 			for id, t in old.receipts do
 				if snapshot.receipts[id] == nil then
-					snapshot.receipts[id] = t
-					table.insert(snapshot.receiptOrder, id)
+					snapshot.receipts[id] = t -- el libro es una UNION: nunca se pierde un recibo guardado
 				end
 			end
+			snapshot.rcount = nil
 			snapshot.lock = nil
 			return snapshot
 		end)
@@ -338,10 +356,10 @@ local function flush(s, force)
 			end
 			for id, t in old.receipts do
 				if snapshot.receipts[id] == nil then
-					snapshot.receipts[id] = t
-					table.insert(snapshot.receiptOrder, id)
+					snapshot.receipts[id] = t -- el libro es una UNION: nunca se pierde un recibo guardado
 				end
 			end
+			snapshot.rcount = nil
 			snapshot.lock = leaseNow(s)
 			return snapshot
 		end)
@@ -355,7 +373,6 @@ local function flush(s, force)
 		s.lastSave = os.clock()
 		s.lastRenew = os.clock()
 		s.data.receipts = snapshot.receipts
-		s.data.receiptOrder = snapshot.receiptOrder
 	end
 	return ok
 end
@@ -411,13 +428,24 @@ local function applyGrant(data, grant)
 	end
 end
 
+-- Anota un recibo PAGADO en el libro. NUNCA purga. Devuelve true, o false + motivo si no cabe (fallo cerrado).
 local function recordReceipt(data, id)
-	data.receipts[id] = os.time()
-	table.insert(data.receiptOrder, id)
-	while #data.receiptOrder > Config.Data.MaxReceipts do
-		local old = table.remove(data.receiptOrder, 1)
-		data.receipts[old] = nil
+	if type(id) ~= "string" or id == "" or #id > Config.Data.MaxReceiptIdLength then
+		return false, "id_invalid"
 	end
+	if data.receipts[id] ~= nil then
+		return true
+	end
+	local n = 0
+	for _ in data.receipts do
+		n += 1
+	end
+	if n >= Config.Data.MaxReceipts then
+		return false, "ledger_full"
+	end
+	data.receipts[id] = os.time()
+	data.rcount = n + 1
+	return true
 end
 
 -- Escritura critica: `mutate(old)` modifica el registro y devuelve true, o devuelve false/"x" para no escribir.
@@ -457,10 +485,21 @@ end
 
 -- Concede `grant` ({vouchers={tier=n}, items={id=n}}). purchaseId evita la doble concesion.
 -- Devuelve "granted" | "duplicate" | "failed".
-function Inventory.grant(player, grant, purchaseId)
+-- opts.test = true: concesion GRATIS de prueba de Studio. NO lleva PurchaseId, NO entra en el libro de recibos pagados
+-- (solo suma al contador `tg`) y solo se admite dentro de Studio. Un PurchaseId con prefijo "STUDIO-" nunca se admite
+-- como recibo.
+function Inventory.grant(player, grant, purchaseId, opts)
 	local s = sessions[player]
 	if not s or not s.loaded then
 		return "failed"
+	end
+	local isTest = type(opts) == "table" and opts.test == true
+	if isTest then
+		if purchaseId ~= nil or not isStudio() then
+			return "failed"
+		end
+	elseif type(purchaseId) ~= "string" or string.sub(purchaseId, 1, 7) == "STUDIO-" then
+		return "failed" -- una compra real exige PurchaseId; los ids de prueba no son recibos
 	end
 	local result = "failed"
 	withLock(s, function()
@@ -468,19 +507,36 @@ function Inventory.grant(player, grant, purchaseId)
 			return
 		end
 		local dup = false
-		local ok, _, newData = criticalWrite(s, function(old)
-			if purchaseId and old.receipts[purchaseId] then
+		local ok, why, newData = criticalWrite(s, function(old)
+			if isTest then
+				applyGrant(old, grant)
+				old.tg = (old.tg or 0) + 1
+				return true
+			end
+			if old.receipts[purchaseId] then
 				dup = true
-				return true -- se reescribe tal cual (solo renueva el alquiler)
+				return true -- ya concedido: se reescribe tal cual (solo renueva el alquiler)
 			end
-			applyGrant(old, grant)
-			if purchaseId then
-				recordReceipt(old, purchaseId)
+			local okR, why = recordReceipt(old, purchaseId)
+			if not okR then
+				return why -- ledger_full / id_invalid: NO se concede nada
 			end
+			applyGrant(old, grant) -- inventario y recibo en la MISMA escritura atomica
 			return true
 		end)
-		if not ok or type(newData) ~= "table" then
+		if not ok then
+			if why == "ledger_full" or why == "id_invalid" then
+				warn("[Inventory] recibo NO registrado (" .. tostring(why) .. "): se devuelve NotProcessedYet. Revisa Config.Data.MaxReceipts / PurchaseId.")
+			end
 			return
+		end
+		if type(newData) ~= "table" then
+			return
+		end
+		local cnt = newData.rcount or 0
+		if not isTest and cnt >= Config.Data.MaxReceipts * Config.Data.ReceiptWarnFraction and not s.ledgerWarned then
+			s.ledgerWarned = true
+			warn(string.format("[Inventory] libro de recibos de %s al %d%% (%d/%d). Al llegar al tope se bloquean las compras nuevas.", s.player.Name, math.floor(100 * cnt / Config.Data.MaxReceipts), cnt, Config.Data.MaxReceipts))
 		end
 		s.data = normalize(newData)
 		s.dirty = false
@@ -492,6 +548,26 @@ function Inventory.grant(player, grant, purchaseId)
 		Remotes.fire(player, "ShopNotice", "State", Inventory.snapshot(player))
 	end
 	return result
+end
+
+-- ¿se puede ofrecer AHORA una compra nueva con Robux a este jugador? Solo si garantizamos guardar el recibo: DataStore real
+-- (no memoria), sesion cargada con alquiler propio y hueco en el libro de recibos. Devuelve ok, motivo.
+function Inventory.canTakePayment(player)
+	local s = sessions[player]
+	if storeKind ~= "datastore" then
+		return false, "persistence"
+	end
+	if not s or not s.loaded or s.lost then
+		return false, "not_loaded"
+	end
+	local n = 0
+	for _ in s.data.receipts do
+		n += 1
+	end
+	if n >= Config.Data.MaxReceipts then
+		return false, "ledger_full"
+	end
+	return true
 end
 
 -- Canjea `qty` vales del tier del articulo por `qty` unidades. "ok" | "insufficient" | "failed".
