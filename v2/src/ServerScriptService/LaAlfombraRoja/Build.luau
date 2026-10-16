@@ -6,7 +6,6 @@
 ]]
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
-local RunService = game:GetService("RunService")
 
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("AlfombraShared")
 local CONFIG = require(Shared.Config)
@@ -316,21 +315,6 @@ local function addStrobe(parent, name, x1, y1, z1, x2, y2, z2)
 	local l = addLight(s, C.white, 40, true, 4)
 	l.Enabled = false
 	table.insert(fx.strobes, { part = s, light = l, on = false })
-end
-
-local function mix(c1, c2, a)
-	return Color3.new(c1.R + (c2.R - c1.R) * a, c1.G + (c2.G - c1.G) * a, c1.B + (c2.B - c1.B) * a)
-end
-
-local function scaleColor(c, k)
-	return Color3.new(c.R * k, c.G * k, c.B * k)
-end
-
--- el color de letreros y neones oscila despacio entre dos tonos calidos/neutros (nada saturado)
-local TONE_A, TONE_B = Color3.fromRGB(246, 240, 228), Color3.fromRGB(238, 198, 140)
-local function cycleColor(t, phase)
-	local a = 0.5 + 0.5 * math.sin(t * 0.6 + phase)
-	return mix(TONE_A, TONE_B, a)
 end
 
 -- cartel con SurfaceGui. (dx,dz) = hacia donde mira el cartel
@@ -887,8 +871,6 @@ end
 ------------------------------------------------------------------------
 -- Halloween
 ------------------------------------------------------------------------
-local FLICKER = { 0.8, 1.0, 1.25 }
-
 local function flameLight(part, color, range, brightness)
 	local l = addLight(part, color, range, false, brightness)
 	table.insert(fx.flames, { light = l, base = l.Brightness, phase = #fx.flames * 1.3 })

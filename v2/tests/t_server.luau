@@ -235,6 +235,8 @@ do -- ===================================================== inventario, compras,
 	__market.ProcessReceipt(receipt("R-7", 555))
 	check("...hasta completar las 3 unidades", items().tequila_donjulio == 3 and Purchases._pending(p1) == nil)
 	__market.PromptProductPurchaseFinished:_fire(101, 555, false)
+	__market.PromptProductPurchaseFinished:_fire(101, 555, true)
+	__market.PromptProductPurchaseFinished:_fire(101, 556, true)
 	check("PromptProductPurchaseFinished NUNCA concede nada", (Inventory.get(p1).vouchers.bottle or 0) == 0 and items().tequila_donjulio == 3)
 	-- validaciones del remoto
 	local before = items().whisky_malta

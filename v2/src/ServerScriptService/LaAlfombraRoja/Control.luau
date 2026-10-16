@@ -9,7 +9,6 @@
 ]]
 
 local RunService = game:GetService("RunService")
-local CollectionService = game:GetService("CollectionService")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("AlfombraShared")
 local Config = require(Shared.Config)
 local Remotes = require(script.Parent.Remotes)

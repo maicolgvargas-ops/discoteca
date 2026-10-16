@@ -177,7 +177,8 @@ function Purchases.advance(player)
 			toast(player, "No se pudo guardar (prueba Studio).")
 			return
 		end
-		return Purchases.advance(player)
+		Purchases.advance(player)
+		return
 	end
 	MarketplaceService:PromptProductPurchase(player, product.ProductId)
 end

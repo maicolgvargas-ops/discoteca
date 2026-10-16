@@ -14,13 +14,10 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local PhysicsService = game:GetService("PhysicsService")
-local CollectionService = game:GetService("CollectionService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("AlfombraShared")
 local Config = require(Shared.Config)
-local Util = require(Shared.Util)
-local DancePoses = require(Shared.DancePoses)
 local Remotes = require(script.Parent.Remotes)
 local Inventory = require(script.Parent.Inventory)
 local Control = require(script.Parent.Control)

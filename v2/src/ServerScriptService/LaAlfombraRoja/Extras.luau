@@ -282,7 +282,7 @@ function Extras.guards(ctx, enabled)
 		return
 	end
 	local e = ctx.folders.Exterior
-	local C, M, B = ctx.C, ctx.M, ctx.B
+	local C, M = ctx.C, ctx.M
 	local sides = { { -12, "Guardia Iván" }, { 12, "Guardia Rocío" } }
 	for i, d in sides do
 		local m = npc(ctx, e, "AR_Npc", {
