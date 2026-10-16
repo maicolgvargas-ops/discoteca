@@ -8,14 +8,22 @@
 	  receipts  { [PurchaseId] = os.time() } + receiptOrder (ultimos N)       v = version
 
 	Garantias:
+	  * BLOQUEO DE SESION (lease) entre servidores: al cargar, el servidor toma un "alquiler" dentro del propio
+	    registro con UpdateAsync (lock = { o = token de sesion, e = caducidad }). Mientras dure, NINGUN otro
+	    servidor carga ni escribe a ese jugador (espera, y si no se libera queda en solo lectura). El dueño lo
+	    renueva con cada guardado/renovacion; si el servidor cae, caduca solo. Toda escritura comprueba en el
+	    mismo UpdateAsync que el alquiler sigue siendo suyo; si no, no escribe y la sesion pasa a solo lectura.
 	  * Las operaciones criticas (conceder una compra, canjear vales) se escriben con UpdateAsync
-	    (lectura-modificacion-escritura atomica sobre lo guardado) y son idempotentes por PurchaseId.
-	  * Si el guardado falla se DEVUELVE "failed": quien llama NO debe confirmar el recibo.
-	  * Si la carga inicial falla, la sesion queda en solo-lectura y NUNCA se sobrescribe lo guardado
-	    con datos vacios; se reintenta la carga cada 15 s.
+	    (lectura-modificacion-escritura atomica) y el recibo (PurchaseId) se guarda EN EL MISMO registro y
+	    en la MISMA escritura que el inventario: o se guardan los dos o ninguno. Idempotentes por PurchaseId.
+	  * Si el guardado falla o no tenemos el alquiler se DEVUELVE "failed": quien llama NO confirma el recibo
+	    (ProcessReceipt devuelve NotProcessedYet y Roblox lo reintenta, tambien tras reconectar).
+	  * Si la carga inicial falla o el registro esta alquilado por otro servidor, la sesion queda en
+	    solo-lectura y NUNCA se sobrescribe lo guardado; se reintenta cada 15 s.
+	  * Al salir se guarda y se LIBERA el alquiler en una sola escritura; al cerrar el servidor se liberan todos.
 	  * El estado no critico (equipado, sorbos) se guarda por intervalo, al salir y al cerrar el servidor.
-	  * Sin bloqueo de sesion entre servidores (ver README: para produccion con muchos servidores se
-	    recomienda ProfileService o equivalente).
+	  * Limite: la caducidad usa os.time() de cada servidor (relojes sincronizados por Roblox; el alquiler de
+	    120 s deja margen de sobra). UpdateAsync es atomico por clave en Roblox; aqui solo se simula.
 ]]
 
 local Players = game:GetService("Players")
@@ -34,6 +42,8 @@ local Inventory = {}
 local store
 local sessions = {} -- [player] = session
 local TOOL_ATTR = "AR_DrinkTool"
+local serverId = "studio"
+local sessionCounter = 0
 local SIP_COOLDOWN = 1.5
 
 local function newData()
@@ -105,55 +115,171 @@ local function withLock(s, fn)
 end
 
 ------------------------------------------------------------------------
+-- alquiler (lease) de la sesion
+------------------------------------------------------------------------
+local function leaseNow(s)
+	return { o = s.token, e = os.time() + Config.Data.LeaseSeconds }
+end
+
+-- ¿el registro guardado sigue alquilado por ESTA sesion?
+local function owns(old, s)
+	return type(old.lock) == "table" and old.lock.o == s.token
+end
+
+-- perdimos el alquiler (otro servidor lo tomo): no escribimos mas; solo lectura y se recarga
+local function handleLost(s)
+	if s.lost then
+		return
+	end
+	s.lost = true
+	s.loaded = false
+	s.readOnly = true
+	s.dirty = false
+	s.retryAt = os.clock() + 5
+	warn("[Inventory] alquiler de sesion perdido para " .. s.player.Name .. ": solo lectura; se descartan cambios no guardados")
+	task.spawn(function()
+		Inventory.refreshTool(s.player)
+		Remotes.fire(s.player, "ShopNotice", "State", Inventory.snapshot(s.player))
+	end)
+end
+
+------------------------------------------------------------------------
 -- carga / guardado
 ------------------------------------------------------------------------
+-- Toma el alquiler y carga. Devuelve "ok" | "held" (otro servidor lo tiene vivo) | "error".
 local function tryLoad(s)
+	local info
+	local uid = s.player.UserId
 	local ok, res = retry(function()
-		return store:GetAsync(s.key)
+		return store:UpdateAsync(s.key, function(old)
+			old = normalize(old)
+			local lk = old.lock
+			if type(lk) == "table" and lk.o ~= s.token and (tonumber(lk.e) or 0) > os.time() then
+				info = "held"
+				return nil -- no se escribe nada
+			end
+			old.lock = leaseNow(s)
+			if not old.credential then
+				old.credential = Inventory.credentialFor(uid)
+			end
+			info = "ok"
+			return old
+		end)
 	end)
-	if ok then
-		s.data = normalize(res)
-		s.loaded = true
-		s.readOnly = false
-		s.retryAt = nil
-		ensureCredential(s)
-		return true
+	if not ok then
+		return "error"
 	end
-	return false
+	if info ~= "ok" or type(res) ~= "table" then
+		return "held"
+	end
+	s.data = normalize(res)
+	s.loaded = true
+	s.readOnly = false
+	s.lost = false
+	s.blocked = false
+	s.retryAt = nil
+	s.dirty = false
+	s.lastSave = os.clock()
+	s.lastRenew = os.clock()
+	return "ok"
 end
 
-function Inventory.load(player)
-	local s = { player = player, key = "u" .. player.UserId, data = newData(), loaded = false, readOnly = false, dirty = false, busy = false, lastSave = os.clock() }
-	sessions[player] = s
-	if not tryLoad(s) then
-		s.readOnly = true
-		s.retryAt = os.clock() + 15
-		warn("[Inventory] no se pudo cargar el inventario de " .. player.Name .. ": solo lectura hasta reintentar")
-	end
-	return s
-end
-
--- escribe el estado en cache conservando los recibos ya guardados. Asume el cerrojo tomado.
-local function flush(s)
-	if not s.loaded or not s.dirty then
+-- libera el alquiler guardando el estado (una sola escritura). Asume el cerrojo local tomado.
+local function unlock(s)
+	if not s.loaded then
 		return true
 	end
 	local snapshot = Util.deepCopy(s.data)
 	local ok = retry(function()
 		store:UpdateAsync(s.key, function(old)
 			old = normalize(old)
+			if not owns(old, s) then
+				return nil -- ya no es nuestro: no tocar
+			end
 			for id, t in old.receipts do
 				if snapshot.receipts[id] == nil then
 					snapshot.receipts[id] = t
 					table.insert(snapshot.receiptOrder, id)
 				end
 			end
+			snapshot.lock = nil
 			return snapshot
 		end)
 	end)
 	if ok then
+		s.loaded = false
+		s.dirty = false
+	end
+	return ok
+end
+
+function Inventory.load(player)
+	sessionCounter += 1
+	local s = {
+		player = player, key = "u" .. player.UserId, data = newData(), loaded = false, readOnly = false, dirty = false, busy = false,
+		lastSave = os.clock(), lastRenew = os.clock(), token = string.format("%s:%d:%d", serverId, sessionCounter, math.random(1, 2147483646)),
+	}
+	sessions[player] = s
+	local deadline = os.clock() + Config.Data.LockWaitSeconds
+	while true do
+		local r = tryLoad(s)
+		if r == "ok" then
+			break
+		end
+		if s.gone then
+			return s
+		end
+		if os.clock() >= deadline then
+			s.readOnly = true
+			s.blocked = (r == "held")
+			s.retryAt = os.clock() + 15
+			warn("[Inventory] " .. (s.blocked and "inventario en uso en otro servidor" or "no se pudo cargar el inventario") .. " de " .. player.Name .. ": solo lectura hasta reintentar")
+			return s
+		end
+		task.wait(r == "held" and Config.Data.LockRetrySeconds or 0.5)
+	end
+	if s.gone then -- el jugador se fue mientras esperabamos: devolver el alquiler
+		withLock(s, function()
+			unlock(s)
+		end)
+		sessions[player] = nil
+	end
+	return s
+end
+
+-- escribe el estado en cache (y renueva el alquiler). Asume el cerrojo local tomado.
+-- force = true: tambien si no hay cambios (renovacion).
+local function flush(s, force)
+	if not s.loaded or (not s.dirty and not force) then
+		return true
+	end
+	local snapshot = Util.deepCopy(s.data)
+	local lost = false
+	local ok = retry(function()
+		store:UpdateAsync(s.key, function(old)
+			old = normalize(old)
+			if not owns(old, s) then
+				lost = true
+				return nil
+			end
+			for id, t in old.receipts do
+				if snapshot.receipts[id] == nil then
+					snapshot.receipts[id] = t
+					table.insert(snapshot.receiptOrder, id)
+				end
+			end
+			snapshot.lock = leaseNow(s)
+			return snapshot
+		end)
+	end)
+	if lost then
+		handleLost(s)
+		return false
+	end
+	if ok then
 		s.dirty = false
 		s.lastSave = os.clock()
+		s.lastRenew = os.clock()
 		s.data.receipts = snapshot.receipts
 		s.data.receiptOrder = snapshot.receiptOrder
 	end
@@ -179,8 +305,12 @@ function Inventory.waitLoaded(player, timeout)
 	end
 	local waited = 0
 	while not s.loaded and waited < (timeout or 20) do
-		if s.readOnly and not s.busy then
-			tryLoad(s)
+		if s.readOnly and not s.busy and not s.gone then
+			withLock(s, function()
+				if not s.loaded then
+					tryLoad(s)
+				end
+			end)
 		end
 		if s.loaded then
 			break
@@ -192,7 +322,7 @@ function Inventory.waitLoaded(player, timeout)
 end
 
 ------------------------------------------------------------------------
--- operaciones CRITICAS (atomicas con UpdateAsync, idempotentes)
+-- operaciones CRITICAS (atomicas con UpdateAsync, idempotentes, con alquiler)
 ------------------------------------------------------------------------
 local function applyGrant(data, grant)
 	for tier, n in (grant.vouchers or {}) do
@@ -216,42 +346,73 @@ local function recordReceipt(data, id)
 	end
 end
 
+-- Escritura critica: `mutate(old)` modifica el registro y devuelve true, o devuelve false/"x" para no escribir.
+-- Comprueba el alquiler DENTRO del UpdateAsync. Devuelve ok, info.
+local function criticalWrite(s, mutate)
+	local info
+	local lost = false
+	local ok, newData = retry(function()
+		return store:UpdateAsync(s.key, function(old)
+			old = normalize(old)
+			if not owns(old, s) then
+				lost = true
+				info = "lost"
+				return nil
+			end
+			local res = mutate(old)
+			if res ~= true then
+				info = res
+				return nil
+			end
+			old.lock = leaseNow(s)
+			return old
+		end)
+	end)
+	if lost then
+		handleLost(s)
+		return false, "lost"
+	end
+	if not ok then
+		return false, "error"
+	end
+	if info ~= nil then
+		return false, info -- el cambio no procedia (p. ej. vales insuficientes): no se escribio nada
+	end
+	return true, nil, newData
+end
+
 -- Concede `grant` ({vouchers={tier=n}, items={id=n}}). purchaseId evita la doble concesion.
 -- Devuelve "granted" | "duplicate" | "failed".
 function Inventory.grant(player, grant, purchaseId)
 	local s = sessions[player]
-	if not s then
+	if not s or not s.loaded then
 		return "failed"
 	end
 	local result = "failed"
 	withLock(s, function()
-		if s.loaded and s.dirty and not flush(s) then
+		if not s.loaded or (s.dirty and not flush(s)) then
 			return
 		end
-		local info
-		local ok, newData = retry(function()
-			return store:UpdateAsync(s.key, function(old)
-				old = normalize(old)
-				if purchaseId and old.receipts[purchaseId] then
-					info = "duplicate"
-					return old
-				end
-				applyGrant(old, grant)
-				if purchaseId then
-					recordReceipt(old, purchaseId)
-				end
-				info = "granted"
-				return old
-			end)
+		local dup = false
+		local ok, _, newData = criticalWrite(s, function(old)
+			if purchaseId and old.receipts[purchaseId] then
+				dup = true
+				return true -- se reescribe tal cual (solo renueva el alquiler)
+			end
+			applyGrant(old, grant)
+			if purchaseId then
+				recordReceipt(old, purchaseId)
+			end
+			return true
 		end)
 		if not ok or type(newData) ~= "table" then
 			return
 		end
 		s.data = normalize(newData)
-		s.loaded, s.readOnly, s.dirty = true, false, false
-		s.lastSave = os.clock()
+		s.dirty = false
+		s.lastSave, s.lastRenew = os.clock(), os.clock()
 		ensureCredential(s)
-		result = info
+		result = dup and "duplicate" or "granted"
 	end)
 	if result == "granted" then
 		Remotes.fire(player, "ShopNotice", "State", Inventory.snapshot(player))
@@ -263,45 +424,38 @@ end
 function Inventory.redeem(player, itemId, qty)
 	local item = Catalog.getItem(itemId)
 	local s = sessions[player]
-	if not item or not s or type(qty) ~= "number" or qty < 1 then
+	if not item or not s or not s.loaded or type(qty) ~= "number" or qty < 1 then
 		return "failed"
 	end
 	local tier = item.Tier
 	local result = "failed"
 	withLock(s, function()
-		if s.loaded and s.dirty and not flush(s) then
+		if not s.loaded or (s.dirty and not flush(s)) then
 			return
 		end
-		local info
-		local ok, newData = retry(function()
-			return store:UpdateAsync(s.key, function(old)
-				old = normalize(old)
-				if (old.vouchers[tier] or 0) < qty then
-					info = "insufficient"
-					return nil
-				end
-				old.vouchers[tier] -= qty
-				if old.vouchers[tier] <= 0 then
-					old.vouchers[tier] = nil
-				end
-				old.items[itemId] = (old.items[itemId] or 0) + qty
-				info = "ok"
-				return old
-			end)
+		local ok, info, newData = criticalWrite(s, function(old)
+			if (old.vouchers[tier] or 0) < qty then
+				return "insufficient"
+			end
+			old.vouchers[tier] -= qty
+			if old.vouchers[tier] <= 0 then
+				old.vouchers[tier] = nil
+			end
+			old.items[itemId] = (old.items[itemId] or 0) + qty
+			return true
 		end)
 		if not ok then
-			return
-		end
-		if info == "insufficient" then
-			result = "insufficient"
+			if info == "insufficient" then
+				result = "insufficient"
+			end
 			return
 		end
 		if type(newData) ~= "table" then
 			return
 		end
 		s.data = normalize(newData)
-		s.loaded, s.readOnly, s.dirty = true, false, false
-		s.lastSave = os.clock()
+		s.dirty = false
+		s.lastSave, s.lastRenew = os.clock(), os.clock()
 		result = "ok"
 	end)
 	if result == "ok" then
@@ -446,6 +600,8 @@ function Inventory.snapshot(player)
 	return {
 		loaded = s.loaded,
 		readOnly = s.readOnly,
+		blocked = s.blocked == true, -- el registro esta alquilado por otro servidor
+		lost = s.lost == true,
 		items = Util.deepCopy(d.items),
 		vouchers = Util.deepCopy(d.vouchers),
 		open = Util.deepCopy(d.open),
@@ -474,15 +630,40 @@ local function onPlayerAdded(player)
 	Remotes.fire(player, "ShopNotice", "State", Inventory.snapshot(player))
 end
 
+-- sale el jugador: guarda y LIBERA el alquiler en una sola escritura
 function Inventory.release(player)
 	local s = sessions[player]
 	if not s then
 		return
 	end
-	withLock(s, function()
-		flush(s)
-	end)
+	s.gone = true
+	local ok = true
+	if s.loaded then
+		withLock(s, function()
+			ok = unlock(s)
+		end)
+	end
+	if not ok then
+		warn("[Inventory] no se pudo liberar el alquiler de " .. player.Name .. ": caducara solo en <= " .. Config.Data.LeaseSeconds .. " s")
+	end
 	sessions[player] = nil
+end
+
+-- cierre del servidor: guarda y libera TODOS los alquileres en paralelo (BindToClose dispone de ~30 s)
+function Inventory.releaseAll()
+	local pending = 0
+	for _, s in table.clone(sessions) do
+		pending += 1
+		task.spawn(function()
+			Inventory.release(s.player)
+			pending -= 1
+		end)
+	end
+	local waited = 0
+	while pending > 0 and waited < 25 do
+		task.wait(0.1)
+		waited += 0.1
+	end
 end
 
 function Inventory.flushAll()
@@ -494,6 +675,12 @@ function Inventory.flushAll()
 end
 
 function Inventory.init()
+	local okJ, jid = pcall(function()
+		return game.JobId
+	end)
+	if okJ and type(jid) == "string" and jid ~= "" then
+		serverId = jid
+	end
 	store = DataStoreService:GetDataStore(Config.Data.StoreName)
 	Players.PlayerAdded:Connect(onPlayerAdded)
 	Players.PlayerRemoving:Connect(function(player)
@@ -511,23 +698,37 @@ function Inventory.init()
 		acc = 0
 		local now = os.clock()
 		for _, s in sessions do
-			if s.retryAt and now >= s.retryAt and not s.loaded and not s.busy then
-				if tryLoad(s) then
-					task.spawn(function()
+			if s.gone or s.busy then
+				continue
+			end
+			if s.retryAt and now >= s.retryAt and not s.loaded then
+				task.spawn(function()
+					local done = false
+					withLock(s, function()
+						done = (not s.loaded) and tryLoad(s) == "ok"
+					end)
+					if done then
 						Inventory.refreshTool(s.player)
 						Remotes.fire(s.player, "ShopNotice", "State", Inventory.snapshot(s.player))
+					elseif not s.loaded then
+						s.retryAt = os.clock() + 15
+					end
+				end)
+			elseif s.loaded then
+				local renewDue = now - s.lastRenew >= Config.Data.RenewSeconds
+				local saveDue = s.dirty and now - s.lastSave >= Config.Data.AutosaveSeconds
+				if renewDue or saveDue then
+					task.spawn(function()
+						withLock(s, function()
+							flush(s, true)
+						end)
 					end)
-				else
-					s.retryAt = now + 15
 				end
-			end
-			if s.loaded and s.dirty and now - s.lastSave >= Config.Data.AutosaveSeconds and not s.busy then
-				task.spawn(Inventory.flush, s.player)
 			end
 		end
 	end)
 	game:BindToClose(function()
-		Inventory.flushAll()
+		Inventory.releaseAll()
 	end)
 end
 

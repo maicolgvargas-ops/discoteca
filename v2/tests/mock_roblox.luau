@@ -330,7 +330,8 @@ CLASSES.ImageLabel.props = concat(CLASSES.ImageLabel.props, { "LayoutOrder", "ZI
 CLASSES.TextLabel.props = concat(CLASSES.TextLabel.props, { "TextTransparency" })
 
 local __now = 0
-local os = { clock = function() return __now end, time = os.time }
+local __epoch = os.time()
+local os = { clock = function() return __now end, time = function() return __epoch + math.floor(__now) end }
 local __countWrites, __writes = false, 0
 local Inst = {}
 local function newInstance(className)

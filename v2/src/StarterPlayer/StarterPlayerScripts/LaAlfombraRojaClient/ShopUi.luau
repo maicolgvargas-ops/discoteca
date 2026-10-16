@@ -307,8 +307,8 @@ local function buildGui()
 			local product = Catalog.productForTier(tier)
 			local missing = math.max(0, sel.qty - have)
 			if not snap.loaded then
-				buy.Text = "Cargando inventario…"
-				priceL.Text = ""
+				buy.Text = snap.blocked and "Inventario en uso en otro servidor" or (snap.lost and "Reconectando inventario…" or "Cargando inventario…")
+				priceL.Text = snap.blocked and "Tu inventario se está cerrando en otro servidor: reintentando solo." or ""
 			elseif have >= sel.qty then
 				buy.Text = string.format("Canjear %d vale(s) de %s", sel.qty, string.lower(tierName(item)))
 				priceL.Text = string.format("Tienes %d vale(s): no se gastan Robux.", have)

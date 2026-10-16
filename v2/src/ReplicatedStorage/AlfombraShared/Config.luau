@@ -81,6 +81,12 @@ local Config = {
 		AutosaveSeconds = 60,
 		Retries = 4,
 		MaxReceipts = 300, -- PurchaseIds recordados por jugador
+		-- BLOQUEO DE SESION (lease) entre servidores: el servidor que carga a un jugador toma un "alquiler"
+		-- dentro de su propio registro (UpdateAsync). Nadie mas puede escribir mientras dure.
+		LeaseSeconds = 120, -- duracion del alquiler; si un servidor cae, caduca solo
+		RenewSeconds = 40, -- cada cuanto lo renueva el servidor dueño (debe ser < LeaseSeconds / 2)
+		LockWaitSeconds = 20, -- cuanto espera un jugador que entra mientras otro servidor aun lo tiene
+		LockRetrySeconds = 3, -- reintento mientras espera
 	},
 
 	-- COMPRAS CON ROBUX (Developer Products). Los ProductIds estan en Catalog.luau y valen 0 por
