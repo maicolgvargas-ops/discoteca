@@ -94,6 +94,12 @@ function Purchases.processReceipt(info)
 			warn("[Purchases] recibo con formato invalido: se deja sin procesar")
 			return NOT_YET
 		end
+		-- sin persistencia real (DataStore no disponible o modo Studio temporal en memoria) NUNCA se confirma un cobro:
+		-- Roblox lo reintentara cuando haya persistencia
+		if Inventory.persistence() ~= "datastore" then
+			warn("[Purchases] recibo sin persistencia real: NotProcessedYet (no se confirma)")
+			return NOT_YET
+		end
 		local player = Players:GetPlayerByUserId(info.PlayerId)
 		if not player then
 			return NOT_YET -- se reintentara cuando el jugador vuelva a entrar
@@ -180,6 +186,11 @@ function Purchases.advance(player)
 		Purchases.advance(player)
 		return
 	end
+	if Inventory.persistence() ~= "datastore" then
+		pending[player] = nil
+		toast(player, "Compras con Robux bloqueadas: no hay persistencia real en este servidor.")
+		return
+	end
 	MarketplaceService:PromptProductPurchase(player, product.ProductId)
 end
 
@@ -195,6 +206,10 @@ function Purchases.begin(player, itemId, qty)
 		return false
 	end
 	local have = inv.vouchers[item.Tier] or 0
+	if have < q and Inventory.persistence() == "memory" and not Purchases.studioMode() then
+		toast(player, "Modo Studio temporal: las compras con Robux estan desactivadas (activa Purchases.StudioTestMode para probar gratis).")
+		return false
+	end
 	if have < q and not purchasable(item.Tier) then
 		toast(player, "La compra con Robux todavía no está activada en este servidor.")
 		return false

@@ -79,7 +79,7 @@ local C = {
 	wood = Color3.fromRGB(70, 45, 35),
 	green = Color3.fromRGB(30, 120, 60),
 	fire = Color3.fromRGB(255, 140, 40),
-	sofaWarm = Color3.fromRGB(238, 234, 226), -- cuero marfil
+	sofaWarm = Color3.fromRGB(206, 202, 195), -- cuero marfil (algo mas oscuro: no quema con la luz de Future)
 	warmWhite = Color3.fromRGB(255, 214, 170),
 	orange = Color3.fromRGB(255, 120, 20),
 	pumpkin = Color3.fromRGB(240, 105, 15),
@@ -90,7 +90,7 @@ local C = {
 	violet = Color3.fromRGB(128, 100, 196), -- acento del monograma (suave)
 	silver = Color3.fromRGB(214, 217, 230),
 	navy = Color3.fromRGB(14, 12, 24),
-	ivory = Color3.fromRGB(240, 237, 230),
+	ivory = Color3.fromRGB(212, 209, 202), -- marmol marfil (idem)
 	chrome = Color3.fromRGB(206, 210, 220),
 }
 local M = Enum.Material
@@ -306,7 +306,7 @@ end
 local function fillGrid(parent, name, y, color, range, brightness)
 	for _, x in { -56, 0, 56 } do
 		for _, z in { -56, 0, 56 } do
-			lamp(parent, name, x, y, z, color, range, brightness)
+			lamp(parent, name, x, y, z, color, range, brightness * (LOOK.FillScale or 1))
 		end
 	end
 end
@@ -1837,8 +1837,8 @@ local function softbox(parent, name, x, z, tx, tz)
 	local cf = CFrame.lookAt(Vector3.new(x, 9.2, z), Vector3.new(tx, 6, tz))
 	P(parent, name .. "_Box", cf * CFrame.new(0, 0, 0.5), Vector3.new(4.2, 4.2, 1.8), C.black, M.SmoothPlastic, { CanCollide = false, Reflectance = 0.2 })
 	P(parent, name .. "_Rim", cf * CFrame.new(0, 0, -0.42), Vector3.new(4.4, 4.4, 0.12), C.gold, M.Metal, GOLD_DECOR)
-	local diff = P(parent, name .. "_Diffuser", cf * CFrame.new(0, 0, -0.55), Vector3.new(3.8, 3.8, 0.2), Color3.fromRGB(236, 228, 214), M.Neon, { CanCollide = false, CastShadow = false })
-	local l = addLight(diff, Color3.fromRGB(255, 240, 222), 34, true, 1.4, false)
+	local diff = P(parent, name .. "_Diffuser", cf * CFrame.new(0, 0, -0.55), Vector3.new(3.8, 3.8, 0.2), Color3.fromRGB(226, 220, 206), M.SmoothPlastic, { CanCollide = false, CastShadow = false, Reflectance = 0.05 }) -- plastico (no Neon): el difusor ya no se quema
+	local l = addLight(diff, Color3.fromRGB(255, 240, 222), 34, true, 0.8, false)
 	l.Face = Enum.NormalId.Front
 	l.Angle = 65
 end
@@ -2549,7 +2549,7 @@ local function buildLighting()
 		end
 	end
 	Lighting.ClockTime = 0
-	Lighting.Brightness = 1
+	Lighting.Brightness = LOOK.SunBrightness or 1
 	-- ambiente base morado oscuro pero legible (en Voxel/Compatibility no hay rebote de luz:
 	-- con valores mas bajos el interior se ve negro mientras el motor construye la iluminacion)
 	local amb = LOOK.AmbientBoost
@@ -2559,7 +2559,7 @@ local function buildLighting()
 	Lighting.Ambient = boosted(54, 48, 52)
 	Lighting.OutdoorAmbient = boosted(48, 44, 54)
 	Lighting.ExposureCompensation = LOOK.Exposure
-	Lighting.EnvironmentDiffuseScale = 0.5
+	Lighting.EnvironmentDiffuseScale = LOOK.EnvDiffuse or 0.5
 	Lighting.EnvironmentSpecularScale = LOOK.Reflections
 	Lighting.ShadowSoftness = LOOK.ShadowSoftness
 	Lighting.GlobalShadows = true

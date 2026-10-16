@@ -32,6 +32,17 @@ for _, problem in Catalog.validate() do
 	warn("[LaAlfombraRoja] catalogo: " .. problem)
 end
 
+-- Cada subsistema se arranca de forma AISLADA: si uno falla (p. ej. el DataStore en un place sin publicar) se avisa
+-- por warn y el resto del club sigue funcionando. Nada aborta la inicializacion.
+local function safe(name, fn, ...)
+	local ok, res = pcall(fn, ...)
+	if not ok then
+		warn(string.format("[LaAlfombraRoja] %s fallo al iniciar y queda desactivado: %s", name, tostring(res)))
+		return nil
+	end
+	return res
+end
+
 local remotes = Remotes.init()
 
 -- con guardias el spawn queda en la acera, delante de la puerta (invisible: sin cuadrado en la alfombra)
@@ -46,15 +57,23 @@ local ctx = Build.run({
 	end,
 })
 
-Music.init(ctx.club)
-Control.init(ctx)
-local report = Interactions.init(ctx)
+safe("Music", Music.init, ctx.club)
+safe("Control", Control.init, ctx)
+local report = safe("Interactions", Interactions.init, ctx) or { seats = 0 }
 ctx.club.Parent = Workspace
 
 if Config.Shop.Enabled then
-	Inventory.init()
-	Purchases.init(remotes)
-	Purchases.setNearShop(Interactions.nearShop)
+	safe("Inventory", Inventory.init)
+	safe("Purchases", Purchases.init, remotes)
+	safe("Tienda", function()
+		Purchases.setNearShop(Interactions.nearShop)
+	end)
+	local mode = Inventory.persistence()
+	if mode == "memory" then
+		print("[LaAlfombraRoja] MODO STUDIO TEMPORAL: inventario en memoria, NO se guarda. Compras con Robux bloqueadas.")
+	elseif mode == "none" then
+		print("[LaAlfombraRoja] Sin persistencia (DataStore no disponible): inventario y compras con Robux bloqueados; el resto funciona.")
+	end
 end
 
 local partCount = 0

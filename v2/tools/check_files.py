@@ -71,6 +71,7 @@ check("no se toca UserGameSettings ni RenderSettings", "UserGameSettings" not in
 check("sin paneles ni comandos de benchmark", not re.search(r"(?i)benchmark", all_src))
 check("StudioTestMode desactivado por defecto", re.search(r"StudioTestMode\s*=\s*false", got["/ReplicatedStorage/AlfombraShared/Config"][1]) is not None)
 cfg = got["/ReplicatedStorage/AlfombraShared/Config"][1]
+check("StudioTemporaryMode desactivado por defecto y Look con menos exposicion", re.search(r"StudioTemporaryMode\s*=\s*false", cfg) is not None and re.search(r"Exposure\s*=\s*-0\.15", cfg) is not None)
 check("focos de seguimiento y alquiler de sesion configurados", all(k in cfg for k in ("Follow = {", "LeaseSeconds", "RenewSeconds", "LockWaitSeconds")))
 check("los focos y el estrobo estan apagados por defecto (Control.DEFAULT)", re.search(r"Follow = false,", got["/ServerScriptService/LaAlfombraRoja/Control"][1]) is not None and re.search(r"Strobe = false,", got["/ServerScriptService/LaAlfombraRoja/Control"][1]) is not None)
 sys.exit(1 if fails else 0)

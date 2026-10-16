@@ -8,7 +8,7 @@
 
 local Config = {
 	Name = "LaAlfombraRoja",
-	Version = "2.1.0",
+	Version = "2.1.1",
 
 	-- PERFIL GRAFICO: "Equilibrado" (por defecto, prioriza fluidez) o "Alta". Solo cambia lo que se
 	-- construye y cuanto trabajo hacen las animaciones locales: NO toca la calidad grafica del jugador
@@ -25,15 +25,20 @@ local Config = {
 
 	-- AJUSTES DE LUCES Y RENDER
 	Look = {
-		LightIntensity = 1.0,
-		AmbientBoost = 1.0,
-		Exposure = 0.5,
-		Bloom = { Intensity = 0.3, Size = 18, Threshold = 1.0 },
+		-- v2.1.1: menos relleno, exposicion y bloom (en Studio salian muy sobreexpuestos los muebles blancos, la pista y el photocall)
+		LightIntensity = 0.8,
+		AmbientBoost = 0.55,
+		Exposure = -0.15,
+		Bloom = { Intensity = 0.12, Size = 12, Threshold = 1.8 },
+		FillScale = 0.6, -- multiplica el brillo de las luces de relleno de cada piso
+		SunBrightness = 0.5, -- Lighting.Brightness
+		EnvDiffuse = 0.25, -- Lighting.EnvironmentDiffuseScale
 		BeamTransparency = 0.0,
 		BeamBrightness = 1.0,
 		BeamWidth = 1.0,
 		ShaftTransparency = 0.0,
-		TileBrightness = 0.7,
+		TileBrightness = 0.45, -- brillo maximo de la pista LED (lo aplica el cliente)
+		GlowBrightness = 0.55, -- brillo de neones/rotulos animados (lo aplica el cliente)
 		KeyShadows = true,
 		Reflections = 1.0,
 		ShadowSoftness = 0.35,
@@ -105,6 +110,11 @@ local Config = {
 		RenewSeconds = 40, -- cada cuanto lo renueva el servidor dueño (debe ser < LeaseSeconds / 2)
 		LockWaitSeconds = 20, -- cuanto espera un jugador que entra mientras otro servidor aun lo tiene
 		LockRetrySeconds = 3, -- reintento mientras espera
+		-- MODO STUDIO TEMPORAL (explicito, desactivado por defecto): si es true y RunService:IsStudio(), el inventario vive
+		-- en MEMORIA (nada se guarda; se avisa en pantalla) para poder probar tienda e inventario con un place sin publicar.
+		-- Fuera de Studio se ignora. No activa cobros: las compras con Robux siguen bloqueadas; para obtener bebidas usa
+		-- Config.Purchases.StudioTestMode (gratis, solo Studio). NUNCA lo dejes activado al publicar.
+		StudioTemporaryMode = false,
 	},
 
 	-- COMPRAS CON ROBUX (Developer Products). Los ProductIds estan en Catalog.luau y valen 0 por

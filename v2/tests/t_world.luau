@@ -705,7 +705,8 @@ for i = 0, (W.x2 - W.x1) + 5, 2 do
 end
 check(string.format("cobertura de luz exterior: %d/%d (%.0f%%)", extOk, extTot, 100 * extOk / math.max(1, extTot)), extTot > 0 and extOk / extTot >= 0.85)
 local amb = __lighting.Ambient
-check("ambiente base legible (luminancia media >= 0.15)", (amb.R + amb.G + amb.B) / 3 >= 0.15)
+check("ambiente base oscuro pero legible (luminancia media entre 0.08 y 0.2)", (amb.R + amb.G + amb.B) / 3 >= 0.08 and (amb.R + amb.G + amb.B) / 3 <= 0.2)
+check("menos exposicion: ExposureCompensation <= 0, Brightness <= 0.6, bloom suave (intensidad <= 0.15, umbral >= 1.5)", __lighting.ExposureCompensation <= 0 and __lighting.Brightness <= 0.6 and __lighting:FindFirstChild("AlfombraBloom") ~= nil and __lighting.AlfombraBloom.Intensity <= 0.15 and __lighting.AlfombraBloom.Threshold >= 1.5)
 
 local beamLayers, shafts = {}, {}
 for _, d in club:GetDescendants() do

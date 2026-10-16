@@ -40,11 +40,74 @@ local Remotes = require(script.Parent.Remotes)
 local Inventory = {}
 
 local store
+local storeKind = "none" -- "datastore" | "memory" (modo Studio temporal) | "none" (sin persistencia)
 local sessions = {} -- [player] = session
 local TOOL_ATTR = "AR_DrinkTool"
 local serverId = "studio"
 local sessionCounter = 0
 local SIP_COOLDOWN = 1.5
+
+local function isStudio()
+	local ok, studio = pcall(function()
+		return RunService:IsStudio()
+	end)
+	return ok and studio == true
+end
+
+-- almacen EN MEMORIA solo para el modo Studio temporal: mismas operaciones que usa este modulo, pero NADA se guarda
+-- al cerrar la partida. Nunca se usa fuera de Studio.
+local function newMemoryStore()
+	local mem = {}
+	local m = {}
+	function m:GetAsync(key)
+		return Util.deepCopy(mem[key])
+	end
+	function m:UpdateAsync(key, fn)
+		local newV = fn(Util.deepCopy(mem[key]))
+		if newV == nil then
+			return nil
+		end
+		mem[key] = Util.deepCopy(newV)
+		return Util.deepCopy(newV)
+	end
+	return m
+end
+
+-- Obtiene el almacen SIN abortar nunca: GetDataStore falla (p. ej. "You must publish this place to the web to access
+-- DataStore") en Studio con un place sin publicar o sin acceso a la API. Devuelve true si hay almacen.
+local function acquireStore()
+	if store then
+		return true
+	end
+	if Config.Data.StudioTemporaryMode == true then
+		if isStudio() then
+			store = newMemoryStore()
+			storeKind = "memory"
+			warn("[Inventory] MODO STUDIO TEMPORAL: el inventario vive en memoria y NO se guarda. Solo para probar tienda e inventario en Studio.")
+			return true
+		end
+		warn("[Inventory] Config.Data.StudioTemporaryMode esta activo pero esto NO es Studio: se ignora (no hay modo temporal en produccion).")
+	end
+	local ok, res = pcall(function()
+		return DataStoreService:GetDataStore(Config.Data.StoreName)
+	end)
+	if ok and res ~= nil then
+		store = res
+		storeKind = "datastore"
+		return true
+	end
+	storeKind = "none"
+	if not Inventory._warnedStore then
+		Inventory._warnedStore = true
+		warn("[Inventory] SIN PERSISTENCIA: no se pudo obtener el DataStore (" .. tostring(res) .. "). Inventario y compras con Robux bloqueados; el resto del club funciona. En Studio: publica el place y activa 'Enable Studio Access to API Services', o usa Config.Data.StudioTemporaryMode para probar sin guardar.")
+	end
+	return false
+end
+
+-- "datastore" | "memory" | "none"
+function Inventory.persistence()
+	return storeKind
+end
 
 local function newData()
 	return { v = 1, items = {}, vouchers = {}, open = {}, equipped = "", receipts = {}, receiptOrder = {}, credential = false }
@@ -148,6 +211,10 @@ end
 ------------------------------------------------------------------------
 -- Toma el alquiler y carga. Devuelve "ok" | "held" (otro servidor lo tiene vivo) | "error".
 local function tryLoad(s)
+	if not acquireStore() then
+		s.unavailable = true
+		return "error"
+	end
 	local info
 	local uid = s.player.UserId
 	local ok, res = retry(function()
@@ -167,11 +234,13 @@ local function tryLoad(s)
 		end)
 	end)
 	if not ok then
+		s.unavailable = true
 		return "error"
 	end
 	if info ~= "ok" or type(res) ~= "table" then
 		return "held"
 	end
+	s.unavailable = false
 	s.data = normalize(res)
 	s.loaded = true
 	s.readOnly = false
@@ -235,6 +304,11 @@ function Inventory.load(player)
 			s.retryAt = os.clock() + 15
 			warn("[Inventory] " .. (s.blocked and "inventario en uso en otro servidor" or "no se pudo cargar el inventario") .. " de " .. player.Name .. ": solo lectura hasta reintentar")
 			return s
+		end
+		if r == "error" and storeKind == "none" then
+			s.readOnly = true
+			s.retryAt = os.clock() + 15
+			return s -- sin DataStore: no tiene sentido esperar
 		end
 		task.wait(r == "held" and Config.Data.LockRetrySeconds or 0.5)
 	end
@@ -594,13 +668,16 @@ end
 function Inventory.snapshot(player)
 	local s = sessions[player]
 	if not s then
-		return { loaded = false, items = {}, vouchers = {}, open = {}, equipped = "" }
+		return { loaded = false, items = {}, vouchers = {}, open = {}, equipped = "", persistence = storeKind, temporary = storeKind == "memory", unavailable = storeKind == "none" }
 	end
 	local d = s.data
 	return {
 		loaded = s.loaded,
 		readOnly = s.readOnly,
 		blocked = s.blocked == true, -- el registro esta alquilado por otro servidor
+		unavailable = s.unavailable == true, -- sin persistencia (DataStore no disponible)
+		temporary = storeKind == "memory", -- modo Studio temporal: NO se guarda
+		persistence = storeKind,
 		lost = s.lost == true,
 		items = Util.deepCopy(d.items),
 		vouchers = Util.deepCopy(d.vouchers),
@@ -681,7 +758,7 @@ function Inventory.init()
 	if okJ and type(jid) == "string" and jid ~= "" then
 		serverId = jid
 	end
-	store = DataStoreService:GetDataStore(Config.Data.StoreName)
+	acquireStore() -- nunca aborta: sin DataStore el modulo queda en "none" y bloquea inventario/compras
 	Players.PlayerAdded:Connect(onPlayerAdded)
 	Players.PlayerRemoving:Connect(function(player)
 		Inventory.release(player)

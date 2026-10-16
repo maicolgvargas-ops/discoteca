@@ -24,27 +24,56 @@ local S -- estado compartido (Effects.S)
 local acc, retargetAt, clock = 0, 0, 0
 local fade = 0 -- 0..1: encendido progresivo
 local lastApplied = { on = false, k = -1 }
+local announced, announcedAt = false, nil
+
+-- luz y haces pueden replicarse DESPUES de la cabeza: se resuelven (y se reintentan) cuando hacen falta
+local function resolve(h)
+	if not h.light then
+		h.light = h.head:FindFirstChildOfClass("SpotLight")
+	end
+	if #h.beams == 0 then
+		for _, c in h.head:GetChildren() do
+			if c:IsA("Beam") then
+				table.insert(h.beams, { beam = c, w0 = c.Width0, w1 = c.Width1 })
+			end
+		end
+		h.q = nil -- reaplicar anchura/brillo cuando por fin existen los haces
+	end
+	if h.base == nil and h.light then
+		h.base = h.head:GetAttribute("b") or F.Brightness
+	end
+	return h.light ~= nil and #h.beams > 0
+end
 
 local function register(head)
+	if heads[head] then
+		return
+	end
 	local model = head.Parent
+	-- el objetivo (hermano) puede llegar despues que la cabeza etiquetada: esperarlo sin bloquear
 	local target = model and model:FindFirstChild("FollowTarget")
+	if not target and model then
+		task.spawn(function()
+			local t = model:WaitForChild("FollowTarget", 15)
+			if t and head.Parent and not heads[head] then
+				register(head)
+			end
+		end)
+		return
+	end
 	if not target then
 		return
 	end
-	local beams = {}
-	for _, c in head:GetChildren() do
-		if c:IsA("Beam") then
-			table.insert(beams, { beam = c, w0 = c.Width0, w1 = c.Width1 })
-		end
-	end
 	local a = head:GetAttribute("phase") or 0
 	heads[head] = {
-		head = head, target = target, light = head:FindFirstChildOfClass("SpotLight"), beams = beams, base = head:GetAttribute("b") or F.Brightness,
+		head = head, target = target, light = nil, beams = {}, base = head:GetAttribute("b") or F.Brightness,
 		idx = head:GetAttribute("idx") or 1, phase = a,
 		x1 = head:GetAttribute("x1") or -30, z1 = head:GetAttribute("z1") or -54, x2 = head:GetAttribute("x2") or 30, z2 = head:GetAttribute("z2") or 6,
 		y = head:GetAttribute("y") or 0.5,
 		aim = target.Position, goal = target.Position, pos = head.Position, set = nil,
 	}
+	resolve(heads[head])
+	print(string.format("[LaAlfombraRoja] foco rojo %s registrado en el cliente", head.Parent and head.Parent.Name or "?"))
 end
 
 function FollowLights.init(effects)
@@ -136,6 +165,7 @@ local function setEnabled(h, on)
 		return
 	end
 	h.set = on
+	resolve(h)
 	if h.light then
 		h.light.Enabled = on
 	end
@@ -175,6 +205,23 @@ function FollowLights.step(dt, nearClub)
 		fade = math.max(target, fade - df)
 	end
 	lastApplied.on = true
+	if not announced then
+		announced = true
+		local n = 0
+		for _ in heads do
+			n += 1
+		end
+		if n == 0 then
+			warn("[LaAlfombraRoja] focos rojos activados pero NO hay focos registrados en el cliente (etiqueta AR_Follow ausente o aun sin replicar)")
+			announced = false -- reintentar el aviso mas tarde
+			announcedAt = (announcedAt or 0) + 1
+			if announcedAt > 3 then
+				announced = true
+			end
+		else
+			print(string.format("[LaAlfombraRoja] focos rojos ACTIVOS en el cliente (%d focos)", n))
+		end
+	end
 	if clock >= retargetAt then
 		retargetAt = clock + 0.6
 		retarget()

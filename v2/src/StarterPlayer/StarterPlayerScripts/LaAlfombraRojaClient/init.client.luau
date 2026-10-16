@@ -41,16 +41,23 @@ local FollowLights = require(script.FollowLights)
 local Mood = require(script.Mood)
 
 local deps = { club = club, control = control, remotes = remotes }
-Effects.init(club, control)
+local function boot(name, fn, ...)
+	local ok, err = pcall(fn, ...)
+	if not ok then
+		warn(string.format("[LaAlfombraRoja] el modulo cliente %s fallo al iniciar (los demas siguen): %s", name, tostring(err)))
+	end
+	return ok
+end
+boot("Effects", Effects.init, club, control)
 deps.effects = Effects
-ControlUi.init(deps)
-ShopUi.init(deps)
-Dance.init(deps)
-GuardUi.init(deps)
-Npcs.init()
-FollowLights.init(Effects)
-Mood.init(Effects)
-Hud.init({
+boot("FollowLights", FollowLights.init, Effects)
+boot("Mood", Mood.init, Effects)
+boot("ControlUi", ControlUi.init, deps)
+boot("ShopUi", ShopUi.init, deps)
+boot("Dance", Dance.init, deps)
+boot("GuardUi", GuardUi.init, deps)
+boot("Npcs", Npcs.init)
+boot("Hud", Hud.init, {
 	dance = Dance.toggle,
 	backpack = function()
 		ShopUi.open("mochila")
@@ -73,18 +80,31 @@ task.spawn(function()
 	end
 end)
 
+-- Cada modulo se ejecuta AISLADO: si uno lanza un error (se avisa una sola vez por modulo) los demas, incluidos los
+-- focos rojos, siguen funcionando.
+local failedOnce = {}
+local function guarded(name, fn, ...)
+	local ok, err = pcall(fn, ...)
+	if not ok and not failedOnce[name] then
+		failedOnce[name] = true
+		warn(string.format("[LaAlfombraRoja] error en el modulo cliente %s (los demas siguen): %s", name, tostring(err)))
+	end
+end
+
 local slow = 0
 RunService.Heartbeat:Connect(function(dt)
-	Effects.step(dt)
-	FollowLights.step(dt, Effects.isNear())
-	Mood.step(dt)
-	Npcs.step(dt)
-	Dance.step(dt)
+	guarded("Effects", Effects.step, dt)
+	guarded("FollowLights", function()
+		FollowLights.step(dt, Effects.isNear())
+	end)
+	guarded("Mood", Mood.step, dt)
+	guarded("Npcs", Npcs.step, dt)
+	guarded("Dance", Dance.step, dt)
 	slow += dt
 	if slow >= 0.5 then
 		slow = 0
-		Ui.tick()
-		Hud.tick()
-		ControlUi.houseKeeping()
+		guarded("Ui", Ui.tick)
+		guarded("Hud", Hud.tick)
+		guarded("ControlUi", ControlUi.houseKeeping)
 	end
 end)

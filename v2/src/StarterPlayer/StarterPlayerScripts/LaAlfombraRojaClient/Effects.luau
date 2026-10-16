@@ -13,6 +13,9 @@ local Workspace = game:GetService("Workspace")
 local Effects = {}
 
 function Effects.init(club, control)
+	local Look = require(game:GetService("ReplicatedStorage"):WaitForChild("AlfombraShared"):WaitForChild("Config")).Look
+	local TILE_B = (Look.TileBrightness or 0.45) -- brillo maximo de la pista (menos = menos sobreexposicion)
+	local GLOW_B = (Look.GlowBrightness or 0.55)
 	------------------------------------------------------------------------
 	-- Estado compartido
 	------------------------------------------------------------------------
@@ -27,7 +30,8 @@ function Effects.init(club, control)
 	local SAFE_MIN = 0.45 -- las luces de seguridad (pasillos, escaleras) nunca bajan de este nivel
 	local STROBE_HZ = 2.5 -- frecuencia maxima del estrobo (< 3 destellos por segundo)
 
-	local function zoneFactor(zone, safe)
+	-- acc = luz de ACCESO (escaleras, entrada, barras): minimo fijo. Otras luces "safe" (relleno) bajan con Dark hasta ~la mitad.
+	local function zoneFactor(zone, safe, acc)
 		if zone == "Ext" or zone == nil then
 			return 1
 		end
@@ -36,7 +40,8 @@ function Effects.init(club, control)
 			f = 0
 		end
 		if safe then
-			f = math.max(f, SAFE_MIN)
+			local floor_ = (acc == false) and SAFE_MIN * (1 - 0.5 * math.clamp(S.Dark or 0, 0, 1)) or SAFE_MIN
+			f = math.max(f, floor_)
 		end
 		return math.min(f, 1.5) -- tope de intensidad: nunca mas del 150 % del brillo base
 	end
@@ -83,7 +88,7 @@ function Effects.init(club, control)
 			reg.lamp[i] = { part = i, light = firstLight(i), phase = i:GetAttribute("phase") or 0 }
 		end,
 		AR_Light = function(i)
-			reg.light[i] = { zone = i:GetAttribute("z"), safe = i:GetAttribute("safe") == true, base = i:GetAttribute("b") or i.Brightness }
+			reg.light[i] = { zone = i:GetAttribute("z"), safe = i:GetAttribute("safe") == true, acc = i:GetAttribute("acc"), base = i:GetAttribute("b") or i.Brightness }
 		end,
 		AR_Strobe = function(i)
 			local l = firstLight(i)
@@ -160,7 +165,7 @@ function Effects.init(club, control)
 	local function applyState()
 		dirty = false
 		for light, info in reg.light do
-			local f = zoneFactor(info.zone, info.safe)
+			local f = zoneFactor(info.zone, info.safe, info.acc)
 			light.Brightness = info.base * f
 			light.Enabled = f > 0.01
 		end
@@ -310,7 +315,7 @@ function Effects.init(club, control)
 				local d = math.sqrt(dx * dx + dz * dz)
 				local wave = 0.5 + 0.5 * math.sin(d * 0.75 * (12 / tile.n) - t * 2.4)
 				local tone = S.Pulse and (0.5 + 0.5 * math.sin(t * 0.3 + d * 0.15)) or 0
-				local v = (0.16 + 0.5 * wave) * tile.dim * 0.7 * math.min(1.2, pistaF)
+				local v = (0.16 + 0.5 * wave) * tile.dim * TILE_B * math.min(1.2, pistaF)
 				local tq, vq = math.floor(tone * 6 + 0.5), math.floor(v * 12 + 0.5)
 				local hq = P.rainbow and math.floor(((t * 0.04 + d * 0.02) % 1) * 24) or 0
 				local key = (tq * 16 + vq) * 32 + hq
@@ -332,7 +337,7 @@ function Effects.init(club, control)
 				if glowKey[g] ~= key then
 					glowKey[g] = key
 					local c = P.rainbow and Color3.fromHSV(hq / 24, 0.65, 1) or mix(P.glowA, P.glowB, q / GLOW_STEPS)
-					g.part.Color = scale(c, 0.72 * zf)
+					g.part.Color = scale(c, GLOW_B * zf)
 					if g.light then
 						g.light.Color = c
 					end

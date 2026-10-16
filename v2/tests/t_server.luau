@@ -455,7 +455,7 @@ do -- ===================================================== cabina: operador uni
 	check("valores invalidos (texto, NaN, tabla) se ignoran y los numeros se acotan (>= 0, Dark <= 1)", control:GetAttribute("Follow") == true and control:GetAttribute("FollowIntensity") == 0 and control:GetAttribute("Dark") == 1 and control:GetAttribute("FollowSpeed") == 0.25)
 	run(2, 0.5)
 	ctl(pa, "Preset", "DiscotecaOscura")
-	check("preset Discoteca oscura: focos, luz ambiental baja, zonas con protagonismo, estrobo apagado, paleta dorada (no todo rojo)", control:GetAttribute("Follow") == true and control:GetAttribute("FollowIntensity") == 1.1 and control:GetAttribute("Dark") == 0.7 and control:GetAttribute("ZPista") == 0.45 and control:GetAttribute("ZAlfombra") == 1 and control:GetAttribute("Strobe") == false and control:GetAttribute("Palette") == "Champan" and control:GetAttribute("Lasers") == false)
+	check("preset Discoteca oscura: focos, luz ambiental baja, zonas con protagonismo, estrobo apagado, paleta dorada (no todo rojo)", control:GetAttribute("Follow") == true and control:GetAttribute("FollowIntensity") == 1.1 and control:GetAttribute("Dark") == 0.85 and control:GetAttribute("ZPista") == 0.3 and control:GetAttribute("ZAlfombra") == 1 and control:GetAttribute("Strobe") == false and control:GetAttribute("Palette") == "Champan" and control:GetAttribute("Lasers") == false)
 	run(2, 0.5)
 	ctl(pa, "Preset", "Fiesta")
 	check("cambiar a otro preset restablece zonas, focos y oscuridad", control:GetAttribute("Follow") == false and control:GetAttribute("Dark") == 0 and control:GetAttribute("ZPista") == 1 and control:GetAttribute("FollowIntensity") == 1)

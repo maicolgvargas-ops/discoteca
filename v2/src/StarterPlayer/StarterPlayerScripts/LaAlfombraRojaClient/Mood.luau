@@ -1,7 +1,7 @@
 --[[
 	MOOD - "Discoteca oscura": baja la luz AMBIENTAL de tu pantalla segun el atributo Dark de la cabina (0..1).
 	* Solo cambia Lighting.Ambient / OutdoorAmbient / ExposureCompensation en TU cliente, con transicion suave.
-	* Nunca baja del MinKeep (45 %) de los valores originales: el club sigue siendo legible; ademas las luces de
+	* Nunca baja del MinKeep (30 %) de los valores originales: el club sigue siendo legible; ademas las luces de
 	  escaleras, entrada y bar tienen su propio minimo (ver Control.SAFE).
 	* No toca UserGameSettings ni RenderSettings ni la calidad grafica.
 ]]
@@ -10,7 +10,7 @@ local Lighting = game:GetService("Lighting")
 
 local Mood = {}
 
-local MIN_KEEP = 0.45
+local MIN_KEEP = 0.3
 local S
 local base = nil
 local cur = 0
@@ -27,7 +27,7 @@ local function apply(dark)
 	end
 	Lighting.Ambient = sc(base.amb)
 	Lighting.OutdoorAmbient = sc(base.out)
-	Lighting.ExposureCompensation = base.exp - 0.25 * dark
+	Lighting.ExposureCompensation = base.exp - 0.4 * dark
 end
 
 function Mood.init(effects)

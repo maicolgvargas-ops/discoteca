@@ -40,7 +40,7 @@ Control.PRESETS = {
 	Fiesta = { Master = 1.1, Lasers = true, Shafts = true, SpotMove = true, Pulse = true, Speed = 1.1, MirrorSpin = true, MirrorSpeed = 1, Strobe = false, Palette = "Rosa" },
 	Discoteca = { Master = 1.2, Lasers = true, Shafts = true, SpotMove = true, Pulse = true, Speed = 1.6, MirrorSpin = true, MirrorSpeed = 1.5, Strobe = false, Palette = "Multicolor" },
 	-- Discoteca oscura: poca luz ambiental, protagonismo a los focos rojos; alfombra/entrada a tope, sin estrobo
-	DiscotecaOscura = { Master = 0.9, ZPista = 0.45, ZVip = 0.6, ZRooftop = 0.6, ZAlfombra = 1, Lasers = false, Shafts = true, SpotMove = false, Pulse = true, Speed = 0.8, MirrorSpin = true, MirrorSpeed = 0.6, Strobe = false, Palette = "Champan", Follow = true, FollowIntensity = 1.1, FollowSpeed = 0.8, Dark = 0.7 },
+	DiscotecaOscura = { Master = 0.8, ZPista = 0.3, ZVip = 0.4, ZRooftop = 0.4, ZAlfombra = 1, Lasers = false, Shafts = true, SpotMove = false, Pulse = true, Speed = 0.8, MirrorSpin = true, MirrorSpeed = 0.6, Strobe = false, Palette = "Champan", Follow = true, FollowIntensity = 1.1, FollowSpeed = 0.8, Dark = 0.85 },
 	SinEfectos = { Lasers = false, Shafts = false, SpotMove = false, Pulse = false, MirrorSpin = false, Strobe = false, Speed = 0.6, Palette = "Champan" },
 }
 Control.NUM = {
@@ -51,6 +51,9 @@ Control.NUM = {
 Control.BOOL = { "OnPista", "OnVip", "OnRooftop", "OnAlfombra", "Lasers", "Shafts", "SpotMove", "Pulse", "MirrorSpin", "Strobe", "Follow" }
 Control.PALETTES = { Champan = true, Hielo = true, Rosa = true, Violeta = true, Rojo = true, Multicolor = true }
 Control.SAFE = { "^Fill", "^Bar[EW]PendantBulb", "HallStrip", "^Door_", "Stair", "Landing", "CarpetFill", "LightDeskFill" }
+-- luces de ACCESO: escaleras, descansos, puertas, alfombra de entrada, pasillos y lamparas de las barras. NUNCA bajan del
+-- minimo de seguridad, ni siquiera con la oscuridad al maximo. Las demas luces "safe" (relleno) si se atenuan con Dark.
+Control.ACCESS = { "Stair", "Landing", "^Door_", "CarpetFill", "HallStrip", "^Bar[EW]PendantBulb" }
 Control.op = { player = nil, last = 0 } -- operador actual
 Control.buckets = {}
 Control.clock = 0
@@ -144,7 +147,14 @@ function Control.tag()
 						break
 					end
 				end
-				add(d, "AR_Light", { z = Control.zoneOf(d.Parent.CFrame.Position), safe = safe, b = d.Brightness })
+				local acc = false
+				for _, pat in Control.ACCESS do
+					if string.find(pn, pat) then
+						acc = true
+						break
+					end
+				end
+				add(d, "AR_Light", { z = Control.zoneOf(d.Parent.CFrame.Position), safe = safe, acc = acc, b = d.Brightness })
 			end
 		elseif d.Name == "ControlStatusLabel" then
 			CS:AddTag(d, "AR_Status")

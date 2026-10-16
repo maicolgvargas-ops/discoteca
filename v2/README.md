@@ -1,4 +1,4 @@
-# LA ALFOMBRA ROJA · v2.1
+# LA ALFOMBRA ROJA · v2.1.1
 
 Versión **nueva** (no sustituye a la v1 de la raíz del repositorio ni al `LaAlfombraRoja_v2.rbxlx` anterior, que se conserva tal cual). Conserva el nombre y logo de corona dorada, texto
 dorado/rojo, alfombra roja, estilo luxury, muebles blancos y negros brillantes, la bola de espejos corregida
@@ -9,6 +9,34 @@ siguen en x = -76,9 y el `ClubSpawn` es invisible (`Transparency = 1`).
 > **Nada se ha abierto ni probado en Roblox Studio.** Véase la [matriz de pruebas](#matriz-de-pruebas).
 > No se ha publicado nada ni hecho merge.
 
+## Novedades de la 2.1.1 (correcciones tras la primera prueba REAL en Studio)
+La prueba F5 del usuario mostró: escena y HUD correctos, pero el servidor **abortaba** con *"You must publish this place to the web
+to access DataStore"* (`GetDataStore` fuera de `pcall`), muebles blancos/pista/photocall **sobreexpuestos**, ambiente aún claro y focos
+rojos **sin confirmar**. Cambios (todos **sin validar todavía en Studio**; solo pruebas en simulador):
+- **El servidor ya no aborta.** `GetDataStore` va en `pcall` y cada subsistema (`Music`, `Control`, `Interactions`, `Inventory`,
+  `Purchases`) arranca aislado: si uno falla se avisa por `warn` y el resto sigue. Sin DataStore (`persistence = "none"`): inventario y
+  compras con Robux **bloqueados** (`ProcessReceipt` → `NotProcessedYet`, nunca se confirma un cobro), pero entrada, guardias,
+  credencial, asientos, baile, música, cabina y luces siguen funcionando. La UI de la tienda lo explica.
+- **Modo Studio temporal (explícito, separado de producción):** `Config.Data.StudioTemporaryMode = true` (por defecto `false`). Solo si
+  `RunService:IsStudio()`: el inventario vive **en memoria** (nada se guarda; banner «MODO STUDIO TEMPORAL: el inventario NO se
+  guarda»). **No activa cobros:** `ProcessReceipt` sigue devolviendo `NotProcessedYet` y las compras con Robux están bloqueadas; para
+  obtener bebidas usa además `Config.Purchases.StudioTestMode = true` (gratis, solo Studio). Fuera de Studio se ignora con un aviso.
+  Desactívalo antes de publicar. Alternativa sin modo temporal: publica el place y activa *Enable Studio Access to API Services*.
+- **Menos sobreexposición:** `Config.Look` ahora usa `LightIntensity 0.8`, `AmbientBoost 0.55`, `Exposure -0.15`, bloom suave
+  (`0.12 / tamaño 12 / umbral 1.8`), relleno de pisos ×0,6 (`FillScale`), `Lighting.Brightness 0.5` (`SunBrightness`),
+  `EnvironmentDiffuseScale 0.25`, pista LED y neones animados más suaves (`TileBrightness 0.45`, `GlowBrightness 0.55`), cuero
+  marfil y mármol marfil algo más oscuros (siguen siendo «blancos»), y el difusor del softbox del photocall ya no es `Neon`
+  (plástico) con menos brillo. Se conservan los reflejos (`Reflectance`) y el negro lacado. **Son valores iniciales razonados, no
+  medidos en Studio:** ajústalos en `Config.Look` mirando la escena real.
+- **Discoteca oscura más oscura:** `Dark 0.85` (ambiente local hasta el 30 % y exposición −0,34), `Master 0.8`, pista 30 %, VIP/rooftop
+  40 %. Las luces de **acceso** (escaleras, descansos, puertas, alfombra de entrada, pasillos y lámparas de las barras, atributo
+  `acc`) mantienen **siempre ≥ 45 %**; solo el relleno se atenúa. La alfombra/entrada queda al 100 %.
+- **Focos rojos (arranque):** el registro tolera que la luz, el haz o el objetivo se repliquen después de la cabeza etiquetada; los
+  módulos del cliente arrancan y se ejecutan **aislados** (un error en `Effects`, por ejemplo, ya no detiene los focos); el cliente
+  imprime `[LaAlfombraRoja] foco rojo FollowLightN registrado en el cliente` y `focos rojos ACTIVOS en el cliente (N focos)` (y un
+  `warn` si se activan sin focos registrados) para poder confirmarlo en *Output*. Además, antes el servidor abortaba en
+  `Inventory.init`, así que `Purchases.init` nunca llegaba a ejecutarse: eso queda resuelto.
+
 ## Novedades de la 2.1.0
 - **Discoteca más oscura + focos rojos móviles.** 2 focos rojos (perfil Equilibrado) o 4 (Alta) colgados del truss del atrio.
   Cada uno tiene luz roja (`SpotLight` sin sombras, rango ≤ 60) y un haz visible (`Beam`). Los mueve **solo el cliente**:
@@ -16,22 +44,22 @@ siguen en x = -76,9 y el `ClubSpawn` es invisible (`Transparency = 1`).
   **nunca apuntan fuera de la pista** (rectángulo de `LAYOUT.dance` con margen) y, sin nadie, barren la pista despacio.
   Están **apagados por defecto**; se activan en la cabina: pestaña *Luces → Focos rojos y ambiente* (interruptor,
   intensidad 0–150 %, velocidad ×0,25–×2, oscuridad 0–100 %) o con el preset **Discoteca oscura**.
-- **Preset «Discoteca oscura»** (`Control.PRESETS.DiscotecaOscura`): oscuridad 0,7, pista 45 %, VIP/rooftop 60 %, alfombra/entrada
+- **Preset «Discoteca oscura»** (`Control.PRESETS.DiscotecaOscura`): (2.1.1) oscuridad 0,85, pista 30 %, VIP/rooftop 40 %, alfombra/entrada
   100 %, paleta dorada (los focos son lo único rojo), estrobo **apagado**, láseres apagados. Cualquier preset restablece primero
   zonas, focos y oscuridad (`PRESET_BASE`), así que al volver a «Elegante» todo vuelve a su sitio.
 - **Visibilidad conservada:** la oscuridad solo baja `Lighting.Ambient/OutdoorAmbient/ExposureCompensation` **en tu pantalla**
-  y nunca por debajo del 45 % del valor original; escaleras, entrada (zona alfombra), pasillos y las lámparas de las barras tienen
-  luz mínima de seguridad (45 %); logo, photocall, esfera y muebles no se tocan.
+  y (2.1.1) nunca por debajo del 30 % del valor original; escaleras, entrada (zona alfombra), pasillos y las lámparas de las barras tienen
+  luz mínima de seguridad (45 %, luces de acceso); logo, photocall, esfera y muebles no se tocan.
 - **Rendimiento:** apagados = cero trabajo; encendidos, 20 actualizaciones/s (30 en Alta) solo si estás cerca del club, y se escribe
   una propiedad solo cuando cambia. Sin sombras nuevas. **No** se baja ninguna calidad ni resolución automáticamente.
-- **Persistencia de producción:** bloqueo de sesión con *lease* (ver más abajo), recibos idempotentes guardados **en la misma
+- **Persistencia de producción** (corregida en 2.1.1): bloqueo de sesión con *lease* (ver más abajo), recibos idempotentes guardados **en la misma
   escritura** que el inventario, y liberación segura al salir/cerrar.
 
 ## Contenido
 
 | Archivo | Para qué |
 |---|---|
-| `LaAlfombraRoja_v2.1.0.rbxlx` | Place **listo para abrir** (versión actual): todos los Script, LocalScript y ModuleScript ya colocados. `LaAlfombraRoja_v2.rbxlx` es la entrega anterior (2.0.0). |
+| `LaAlfombraRoja_v2.1.1.rbxlx` | Place **listo para abrir** (versión actual): todos los Script, LocalScript y ModuleScript ya colocados. `LaAlfombraRoja_v2.1.0.rbxlx` y `LaAlfombraRoja_v2.rbxlx` son entregas anteriores y se conservan. |
 | `src/` | Fuentes modulares `.luau` (estructura Rojo). Son idénticos a lo que lleva el `.rbxlx`. |
 | `default.project.json` | Proyecto Rojo opcional (`rojo build -o LaAlfombraRoja_v2.rbxlx`). |
 | `tools/make_place.py` | Regenera el `.rbxlx` desde `src/`. `tools/check_files.py` comprueba que coinciden. |
@@ -129,6 +157,7 @@ La credencial del club es un elemento de juego; **no verifica edad** ni sustituy
 - No hay paneles ni comandos de benchmark.
 
 ### Persistencia y bloqueo de sesión (lease)
+Modos de persistencia (`Inventory.persistence()`): `"datastore"` (normal), `"memory"` (solo Studio temporal, ver arriba) y `"none"` (sin DataStore: bloqueado).
 El inventario vive en un único registro por jugador (`DataStore`, clave `u<UserId>`) que incluye inventario, vales, **recibos**
 (`PurchaseId`) y un **alquiler**: `lock = { o = <token de sesión>, e = <caducidad> }`.
 - **Cargar** = `UpdateAsync` que toma el alquiler solo si está libre, caducado o ya es nuestro. Si otro servidor lo tiene vivo
@@ -154,6 +183,7 @@ El inventario vive en un único registro por jugador (`DataStore`, clave `u<User
 |---|---|---|
 | Catálogo y modelos 3D (botellas/copas: piezas, líquido, etiquetas, contraste) | ✅ | ❌ |
 | Inventario: carga/guardado, vales, canje, equipar, sorbos, fallos de DataStore, solo lectura | ✅ | ❌ |
+| **Sin DataStore: `GetDataStore` lanza error** (servidor no aborta, inventario/cobros bloqueados, entrada/cabina/luces siguen) y **modo Studio temporal** (memoria, sin cobros, ignorado fuera de Studio) | ✅ 14 + 11 | ❌ (Studio real) |
 | **Alquiler de sesión**: toma/renovación/liberación, otro servidor con alquiler vivo o caducado, alquiler perdido a mitad, fallos al salir, cierre del servidor, recibos atómicos e idempotentes | ✅ 32 (simulado, un hilo) | ❌ (servidores reales) |
 | Compras: `ProcessReceipt`, idempotencia, no confirmar si falla el guardado, producto desconocido, recibos mal formados, modo Studio | ✅ | ❌ |
 | Música: lista blanca, índices inválidos, volumen, siguiente/anterior, fin de pista, estado vacío | ✅ | ❌ |
@@ -165,11 +195,12 @@ El inventario vive en un único registro por jugador (`DataStore`, clave `u<User
 | UI cliente: tienda, vista previa, mochila, cabina, guardias, HUD, límites | ✅ | ❌ (aspecto visual, tamaño en móvil) |
 | Mundo: navegación (cuerpos 1/2,5/3,5), pasillos, escaleras, luz, piezas flotantes, estilo | ✅ 156 + 156 (Equilibrado + Alta) | ❌ |
 | Láseres dentro del atrio, estrobo ≤ 3/s | ✅ | ❌ |
-| **Focos rojos de seguimiento**: apagados por defecto, límites de pista, suavidad, reparto entre personas, intensidad/velocidad, cero trabajo apagados o lejos, preset y su restablecimiento, oscuridad con mínimo 45 % | ✅ | ❌ (aspecto real del haz, intensidad, sensación de oscuridad) |
-| Pruebas de sabotaje (23 mutaciones, todas detectadas) | ✅ | n/a |
+| **Focos rojos de seguimiento**: apagados por defecto, límites de pista, suavidad, reparto entre personas, intensidad/velocidad, cero trabajo apagados o lejos, preset y su restablecimiento, oscuridad con mínimo 30 % del ambiente y 45 % en luces de acceso | ✅ | ❌ (aspecto real del haz, intensidad, sensación de oscuridad) |
+| Arranque aislado de módulos del cliente, registro tardío de focos, luces de acceso vs relleno con oscuridad máxima, menos exposición (valores de `Lighting`/bloom) | ✅ | ❌ (**el aspecto real de la exposición no se ha visto**) |
+| Pruebas de sabotaje (29 mutaciones, todas detectadas) | ✅ | n/a |
 | Ejecución real, rendimiento/FPS, colisiones, red, multijugador | ❌ | ❌ |
 
-Totales actuales (simulador): servidor 133, persistencia 32, cliente 73, mundo 161 (×2 perfiles), archivos 12 comprobaciones, 23 sabotajes detectados.
+Totales actuales (simulador): servidor 133, persistencia 32, sin DataStore 14, Studio temporal 8 + 3 (producción), cliente 78, mundo 162 (×2 perfiles), archivos 14 comprobaciones, 29 sabotajes detectados. **Ninguno es una prueba en Studio.**
 
 ### Puntos que **no** se han podido verificar y conviene mirar primero en Studio
 1. Que `Seat:Sit(humanoid)` siente al jugador y que los asientos quedan bien colocados.
@@ -179,7 +210,7 @@ Totales actuales (simulador): servidor 133, persistencia 32, cliente 73, mundo 1
 5. Grupos de colisión de la barrera de entrada (jugadores y su personaje al reaparecer).
 6. Configuración de `TextChatService` (ventana, barra de chat, burbujas) en tu versión de chat.
 7. DataStore en Studio (requiere *Enable Studio Access to API Services*).
-8. Rendimiento: ~5,9 mil partes y 146 luces (Equilibrado) / ~6,2 mil y 192 (Alta), sin medir.
+8. Rendimiento (**sin medir**): ~5,9 mil partes y 146 luces (Equilibrado) / ~6,2 mil y 192 (Alta), sin medir.
 9. Aspecto de los focos rojos: ángulo (26°), brillo, anchura del haz y cuánto se ve la «niebla» del haz; ajusta `Config.Follow`.
 10. Que `Lighting.Ambient` local se vea bien con `Technology = Future` y que el nivel «Discoteca oscura» siga siendo legible en móvil.
 11. Concurrencia real del DataStore (dos servidores a la vez, rejoin rápido, `BindToClose` real).
@@ -188,6 +219,7 @@ Totales actuales (simulador): servidor 133, persistencia 32, cliente 73, mundo 1
 ```
 python3 tools/assemble_tests.py tests/t_server.luau /tmp/s.luau && luau /tmp/s.luau
 python3 tools/assemble_tests.py tests/t_persist.luau /tmp/p.luau && luau /tmp/p.luau
+for t in nostore studiotemp studiotemp_prod; do python3 tools/assemble_tests.py tests/t_$t.luau /tmp/$t.luau && luau /tmp/$t.luau; done
 python3 tools/assemble_tests.py tests/t_client.luau /tmp/c.luau && luau /tmp/c.luau
 python3 tools/assemble_tests.py tests/t_world.luau  /tmp/w.luau && luau /tmp/w.luau
 python3 tools/assemble_tests.py tests/t_world.luau  /tmp/wa.luau --set 'Quality="Alta"' && luau /tmp/wa.luau

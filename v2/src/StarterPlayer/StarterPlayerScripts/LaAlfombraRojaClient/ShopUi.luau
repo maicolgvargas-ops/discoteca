@@ -260,7 +260,13 @@ local function buildGui()
 			b.Visible = isShop
 			paint(b, c == sel.category)
 		end
-		banner.Text = studioTest() and "MODO DE PRUEBA EN STUDIO: las compras son GRATIS y no usan Robux." or ""
+		if snap.temporary then
+			banner.Text = "MODO STUDIO TEMPORAL: el inventario NO se guarda" .. (studioTest() and " · compras GRATIS (sin Robux)." or " · compras con Robux desactivadas.")
+		elseif snap.persistence == "none" or snap.unavailable then
+			banner.Text = "SIN PERSISTENCIA: inventario y compras con Robux bloqueados en este servidor."
+		else
+			banner.Text = studioTest() and "MODO DE PRUEBA EN STUDIO: las compras son GRATIS y no usan Robux." or ""
+		end
 		local vb, vs = snap.vouchers.bottle or 0, snap.vouchers.shot or 0
 		vouchersL.Text = string.format("Vales: %d botella · %d shot", vb, vs)
 		local items = {}
@@ -307,8 +313,8 @@ local function buildGui()
 			local product = Catalog.productForTier(tier)
 			local missing = math.max(0, sel.qty - have)
 			if not snap.loaded then
-				buy.Text = snap.blocked and "Inventario en uso en otro servidor" or (snap.lost and "Reconectando inventario…" or "Cargando inventario…")
-				priceL.Text = snap.blocked and "Tu inventario se está cerrando en otro servidor: reintentando solo." or ""
+				buy.Text = snap.blocked and "Inventario en uso en otro servidor" or (snap.lost and "Reconectando inventario…" or ((snap.unavailable or snap.persistence == "none") and "Inventario no disponible" or "Cargando inventario…"))
+				priceL.Text = snap.blocked and "Tu inventario se está cerrando en otro servidor: reintentando solo." or ((snap.unavailable or snap.persistence == "none") and "El servidor no tiene DataStore (place sin publicar o sin acceso a la API)." or "")
 			elseif have >= sel.qty then
 				buy.Text = string.format("Canjear %d vale(s) de %s", sel.qty, string.lower(tierName(item)))
 				priceL.Text = string.format("Tienes %d vale(s): no se gastan Robux.", have)

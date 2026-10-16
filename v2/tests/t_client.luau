@@ -368,11 +368,11 @@ do -- ===================================================== focos rojos de segui
 	local ambBase = Lighting.Ambient
 	click(btn(g, "Preset_DiscotecaOscura"))
 	run(0.3, 0.1)
-	check("preset Discoteca oscura en el servidor: focos ON, ambiente 0.7, zona alfombra/entrada a tope, estrobo apagado", ctl:GetAttribute("Preset") == "DiscotecaOscura" and ctl:GetAttribute("Follow") == true and ctl:GetAttribute("Dark") == 0.7 and ctl:GetAttribute("ZAlfombra") == 1 and ctl:GetAttribute("Strobe") == false and ctl:GetAttribute("ZPista") == 0.45)
+	check("preset Discoteca oscura en el servidor: focos ON, ambiente 0.85, zona alfombra/entrada a tope, estrobo apagado", ctl:GetAttribute("Preset") == "DiscotecaOscura" and ctl:GetAttribute("Follow") == true and ctl:GetAttribute("Dark") == 0.85 and ctl:GetAttribute("ZAlfombra") == 1 and ctl:GetAttribute("Strobe") == false and ctl:GetAttribute("ZPista") == 0.3)
 	-- el ambiente baja con transicion, sin pasar nunca del 45 % de los valores originales
 	run(3, 0.05)
 	local amb = Lighting.Ambient
-	check("ambiente oscurecido (menos luz) pero nunca por debajo del 45 % del original", amb.R < ambBase.R and amb.R >= ambBase.R * 0.45 - 1e-6 and amb.G >= ambBase.G * 0.45 - 1e-6, amb.R .. " vs " .. ambBase.R)
+	check("ambiente oscurecido (menos luz) pero nunca por debajo del 30 % del original", amb.R < ambBase.R and amb.R >= ambBase.R * 0.3 - 1e-6 and amb.G >= ambBase.G * 0.3 - 1e-6, amb.R .. " vs " .. ambBase.R)
 	-- los focos se encienden con fundido
 	workspace.CurrentCamera.CFrame = CFrame.new(0, 30, 100)
 	run(3, 0.05)
@@ -499,6 +499,75 @@ do -- ===================================================== focos rojos de segui
 	ctl:SetAttribute("Follow", false)
 	workspace.CurrentCamera.CFrame = CFrame.new(0, 30, 100)
 	click(btn(g, "Close"))
+	run(0.5, 0.1)
+end
+
+do -- ===================================================== arranque robusto de los focos
+	local CS = game:GetService("CollectionService")
+	local FL = require(clientScript.FollowLights)
+	local ctl = club.Control
+	local n0 = FL.count()
+	-- un foco cuya luz y haz llegan DESPUES de la cabeza (orden de replicacion): se resuelven solos
+	local model = Instance.new("Model")
+	model.Name = "FollowLightTest"
+	local head = Instance.new("Part")
+	head.Name = "FollowHead"
+	head.Anchored = true
+	head.CFrame = CFrame.new(36, 39.4, -60)
+	head:SetAttribute("idx", 3)
+	head:SetAttribute("b", 4)
+	head.Parent = model
+	local tgt = Instance.new("Part")
+	tgt.Name = "FollowTarget"
+	tgt.Anchored = true
+	tgt.CFrame = CFrame.new(0, 0.5, -20)
+	tgt.Parent = model
+	model.Parent = club
+	CS:AddTag(head, "AR_Follow")
+	check("un foco nuevo etiquetado se registra aunque aun no tenga luz ni haz", FL.count() == n0 + 1)
+	local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
+	a0.Parent = head
+	a1.Parent = tgt
+	local l = Instance.new("SpotLight")
+	l.Enabled = false
+	l.Parent = head
+	local b = Instance.new("Beam")
+	b.Attachment0, b.Attachment1, b.Enabled = a0, a1, false
+	b.Width0, b.Width1 = 0.2, 2
+	b.Parent = head
+	ctl:SetAttribute("Follow", true)
+	me.Character.HumanoidRootPart.CFrame = CFrame.new(5, 3, -20)
+	run(3, 0.05)
+	check("...y al llegar la luz y el haz se encienden (resolucion tardia)", l.Enabled == true and b.Enabled == true and l.Brightness > 0)
+	-- un error en OTRO modulo del cliente no detiene los focos
+	local Effects = require(clientScript.Effects)
+	local realStep = Effects.step
+	Effects.step = function() error("fallo simulado de Effects") end
+	local FLs = require(clientScript.FollowLights)
+	local before = FLs.aims()[1].aim
+	me.Character.HumanoidRootPart.CFrame = CFrame.new(-20, 3, -40)
+	run(4, 0.05)
+	local after = FLs.aims()[1].aim
+	check("si Effects lanza un error los focos rojos siguen funcionando (modulos aislados)", (after - before).Magnitude > 5)
+	Effects.step = realStep
+	-- luces de acceso vs relleno con la oscuridad al maximo
+	ctl:SetAttribute("Follow", false)
+	ctl:SetAttribute("Master", 0)
+	ctl:SetAttribute("Dark", 1)
+	run(1, 0.1)
+	local accMin, fillMin, nAcc, nFill = 9, 9, 0, 0
+	for _, lt in CS:GetTagged("AR_Light") do
+		local base = lt:GetAttribute("b")
+		if lt:GetAttribute("safe") == true and base and base > 0 then
+			local ratio = lt.Brightness / base
+			if lt:GetAttribute("acc") == true then accMin = math.min(accMin, ratio) nAcc += 1 else fillMin = math.min(fillMin, ratio) nFill += 1 end
+		end
+	end
+	check("oscuridad maxima y Master 0: las luces de ACCESO (escaleras, entrada, barras) mantienen >= 45 %", nAcc >= 12 and accMin >= 0.449, accMin .. " en " .. nAcc)
+	check("...mientras el relleno si baja (< 45 %, minimo ~22 %)", nFill >= 20 and fillMin < 0.44 and fillMin >= 0.2, fillMin .. " en " .. nFill)
+	ctl:SetAttribute("Master", 1)
+	ctl:SetAttribute("Dark", 0)
+	model:Destroy()
 	run(0.5, 0.1)
 end
 

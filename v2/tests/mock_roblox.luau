@@ -498,10 +498,21 @@ function Inst:GetAttributeChangedSignal(k)
 	if not sigs[k] then sigs[k] = makeSignal() end
 	return sigs[k]
 end
-function Inst:WaitForChild(name)
+function Inst:WaitForChild(name, timeout)
 	local c = self:FindFirstChild(name)
-	assert(c, "WaitForChild: no existe " .. name .. " en " .. tostring(self._props.Name))
-	return c
+	if c then return c end
+	if timeout == nil then
+		assert(c, "WaitForChild: no existe " .. name .. " en " .. tostring(self._props.Name))
+	end
+	-- con timeout: espera simulada (un solo hilo) y devuelve nil si no aparece
+	local waited = 0
+	while waited < timeout do
+		__now += 0.1
+		waited += 0.1
+		c = self:FindFirstChild(name)
+		if c then return c end
+	end
+	return nil
 end
 function Inst:Clone()
 	local c = newInstance(self.ClassName)
@@ -912,7 +923,7 @@ local function __deepCopy(v)
 	for k, x in v do o[k] = __deepCopy(x) end
 	return o
 end
-local __ds = { stores = {}, failures = 0, calls = 0, log = {} }
+local __ds = { stores = {}, failures = 0, calls = 0, log = {}, getFails = 0 }
 local function __dsMaybeFail(what)
 	__ds.calls += 1
 	if __ds.failures > 0 then
@@ -922,6 +933,9 @@ local function __dsMaybeFail(what)
 end
 local __dataStoreService = {
 	GetDataStore = function(_, name)
+		if __ds.getFails > 0 then
+			error('You must publish this place to the web to access DataStore. (simulado)')
+		end
 		local data = __ds.stores[name]
 		if not data then data = {} __ds.stores[name] = data end
 		local store = {}
