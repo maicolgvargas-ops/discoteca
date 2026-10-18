@@ -59,6 +59,10 @@ local ctx = Build.run({
 
 safe("Music", Music.init, ctx.club)
 safe("Control", Control.init, ctx)
+-- VIP: cierre de cristal "polarizado" (visual por cliente) + aros de fuego decorativos. Aditivo; ver VipUpgrade.luau
+safe("VipUpgrade", function()
+	require(Shared.VipUpgrade).build(ctx)
+end)
 local report = safe("Interactions", Interactions.init, ctx) or { seats = 0 }
 ctx.club.Parent = Workspace
 

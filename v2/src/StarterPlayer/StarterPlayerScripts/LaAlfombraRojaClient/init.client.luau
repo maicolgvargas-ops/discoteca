@@ -80,6 +80,9 @@ pcall(function()
 	game:GetService("UserInputService").JumpRequest:Connect(requestStand)
 end)
 
+boot("VipUpgrade", function()
+	require(ReplicatedStorage:WaitForChild("AlfombraShared"):WaitForChild("VipUpgrade")).initClient()
+end)
 boot("Hud", Hud.init, {
 	stand = requestStand,
 	dance = Dance.toggle,

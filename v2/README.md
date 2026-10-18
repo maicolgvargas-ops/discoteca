@@ -1,4 +1,4 @@
-# LA ALFOMBRA ROJA · v2.1.5
+# LA ALFOMBRA ROJA · v2.1.6
 
 Versión **nueva** (no sustituye a la v1 de la raíz del repositorio ni al `LaAlfombraRoja_v2.rbxlx` anterior, que se conserva tal cual). Conserva el nombre y logo de corona dorada, texto
 dorado/rojo, alfombra roja, estilo luxury, muebles blancos y negros brillantes, la bola de espejos corregida
@@ -8,6 +8,14 @@ siguen en x = -76,9 y el `ClubSpawn` es invisible (`Transparency = 1`).
 > **Estado real:** todo está hecho por código y probado **solo en un simulador** (Luau + una API de Roblox simulada).
 > **Nada se ha abierto ni probado en Roblox Studio.** Véase la [matriz de pruebas](#matriz-de-pruebas).
 > No se ha publicado nada ni hecho merge.
+
+## Novedades de la 2.1.6 (parche aditivo VipUpgrade: cristal VIP + aros de fuego)
+Autorizado por el titular. Nuevo `ReplicatedStorage/AlfombraShared/VipUpgrade` (autocontenido, ver `INTEGRACION_VipUpgrade.md`): cierre de cristal del
+VIP (y 24 → 46) con 4 paneles colisionables únicos, «polarizado» solo visual y local por posición de cámara (`LocalTransparencyModifier`; no cambia
+`Transparency` global ni permisos; **no es privacidad real**), y 3–4 aros de fuego dorado/negro colgados del techo con llamas `ParticleEmitter` sin daño y
+una luz sin sombras por aro. Equilibrado/Alta solo cambia cuántos se construyen y a qué distancia se animan; no toca `UserGameSettings`/`RenderSettings`.
+Se cablea con 2 líneas (servidor tras `Control.init`, cliente aislado en `boot`). Pruebas simuladas (32 + 32 en Alta) y 8 sabotajes nuevos; **todo el
+aspecto visual y el coste real quedan por probar en Studio** (lista en `INTEGRACION_VipUpgrade.md`). No toca música, inventario, chat ni compras.
 
 ## Novedades de la 2.1.5 (pantallas «Ahora suena» orientadas al público)
 **QA real aportada por el usuario:** las dos pantallas `NowPlayingL/R` se veían **negras desde la pista**. `Extras.musicScreens` crea el
@@ -165,7 +173,7 @@ rojos **sin confirmar**. Cambios (todos **sin validar todavía en Studio**; solo
 
 | Archivo | Para qué |
 |---|---|
-| `LaAlfombraRoja_v2.1.5.rbxlx` | Place **listo para abrir** (versión actual): todos los Script, LocalScript y ModuleScript ya colocados. `LaAlfombraRoja_v2.1.4.rbxlx`, `LaAlfombraRoja_v2.1.3.rbxlx`, `LaAlfombraRoja_v2.1.2.rbxlx`, `LaAlfombraRoja_v2.1.1.rbxlx`, `LaAlfombraRoja_v2.1.0.rbxlx` y `LaAlfombraRoja_v2.rbxlx` son entregas anteriores y se conservan. |
+| `LaAlfombraRoja_v2.1.6.rbxlx` | Place **listo para abrir** (versión actual): todos los Script, LocalScript y ModuleScript ya colocados. `LaAlfombraRoja_v2.1.5.rbxlx`, `LaAlfombraRoja_v2.1.4.rbxlx`, `LaAlfombraRoja_v2.1.3.rbxlx`, `LaAlfombraRoja_v2.1.2.rbxlx`, `LaAlfombraRoja_v2.1.1.rbxlx`, `LaAlfombraRoja_v2.1.0.rbxlx` y `LaAlfombraRoja_v2.rbxlx` son entregas anteriores y se conservan. |
 | `src/` | Fuentes modulares `.luau` (estructura Rojo). Son idénticos a lo que lleva el `.rbxlx`. |
 | `default.project.json` | Proyecto Rojo opcional (`rojo build -o LaAlfombraRoja_v2.rbxlx`). |
 | `tools/make_place.py` | Regenera el `.rbxlx` desde `src/`. `tools/check_files.py` comprueba que coinciden. |
@@ -307,10 +315,10 @@ El inventario vive en un único registro por jugador (`DataStore`, clave `u<User
 | **Asientos**: sentarse con E, salir con botón/salto/`JumpRequest` validado en servidor, cooldowns, volver a sentarse, ocupados, no liberar a otros, asiento ajeno, spam (el mock reproduce el asiento anclado «pegado» observado en Studio) | ✅ 26 + 9 cliente (simulado) | ❌ (**la corrección aún no se ha probado en Studio**; causa raíz sin confirmar) |
 | **Pantallas NowPlayingL/R orientadas al público** (normal +Z, visibles desde la cámara del QA, barras planas sin audio) y monitor del DJ hacia el operador | ✅ (simulado) | ❌ (**la corrección aún no se ha visto en Studio**; evidencia previa del usuario con `Face = Back` solo en QA) |
 | Arranque aislado de módulos del cliente, registro tardío de focos, luces de acceso vs relleno con oscuridad máxima, menos exposición (valores de `Lighting`/bloom) | ✅ | ❌ (**el aspecto real de la exposición no se ha visto**) |
-| Pruebas de sabotaje (48 mutaciones, todas detectadas) | ✅ | n/a |
+| Pruebas de sabotaje (56 mutaciones, todas detectadas) | ✅ | n/a |
 | Ejecución real, rendimiento/FPS, colisiones, red, multijugador | ❌ | ❌ |
 
-Totales actuales (simulador): servidor 133, asientos 26, persistencia 33, libro de recibos 27, sin DataStore 14, Studio temporal 8 + 3 (producción), cliente 101, mundo 169 (×2 perfiles), archivos 14 comprobaciones, 48 sabotajes detectados. **Ninguno es una prueba en Studio.**
+Totales actuales (simulador): servidor 133, VipUpgrade 32 (×2 perfiles), asientos 26, persistencia 33, libro de recibos 27, sin DataStore 14, Studio temporal 8 + 3 (producción), cliente 101, mundo 169 (×2 perfiles), archivos 14 comprobaciones, 56 sabotajes detectados. **Ninguno es una prueba en Studio.**
 
 ### Puntos que **no** se han podido verificar y conviene mirar primero en Studio
 1. Que `Seat:Sit(humanoid)` siente al jugador y que los asientos quedan bien colocados.
@@ -331,7 +339,7 @@ Totales actuales (simulador): servidor 133, asientos 26, persistencia 33, libro 
 ```
 python3 tools/assemble_tests.py tests/t_server.luau /tmp/s.luau && luau /tmp/s.luau
 python3 tools/assemble_tests.py tests/t_persist.luau /tmp/p.luau && luau /tmp/p.luau
-for t in seats ledger nostore studiotemp studiotemp_prod; do python3 tools/assemble_tests.py tests/t_$t.luau /tmp/$t.luau && luau /tmp/$t.luau; done
+for t in vip seats ledger nostore studiotemp studiotemp_prod; do python3 tools/assemble_tests.py tests/t_$t.luau /tmp/$t.luau && luau /tmp/$t.luau; done
 python3 tools/assemble_tests.py tests/t_client.luau /tmp/c.luau && luau /tmp/c.luau
 python3 tools/assemble_tests.py tests/t_world.luau  /tmp/w.luau && luau /tmp/w.luau
 python3 tools/assemble_tests.py tests/t_world.luau  /tmp/wa.luau --set 'Quality="Alta"' && luau /tmp/wa.luau

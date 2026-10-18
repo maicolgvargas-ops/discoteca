@@ -105,6 +105,12 @@ function NumberSequence.new(keys)
 	return { __type = "NumberSequence", Keypoints = keys }
 end
 
+local NumberRange = {}
+function NumberRange.new(a, b)
+	assert(type(a) == "number" and (b == nil or (type(b) == "number" and b >= a)), "NumberRange invalido")
+	return { __type = "NumberRange", Min = a, Max = b or a }
+end
+
 local Vector2 = {}
 function Vector2.new(x, y)
 	return { X = x, Y = y, __type = "Vector2" }
@@ -260,7 +266,7 @@ local Enum = {
 ------------------------------------------------------------------------
 -- Instance
 ------------------------------------------------------------------------
-local PART_PROPS = { "Name", "Parent", "Anchored", "Size", "CFrame", "Color", "Material", "TopSurface", "BottomSurface", "CanCollide", "CastShadow", "Transparency", "Shape", "Reflectance", "Massless", "CanTouch", "CanQuery", "CollisionGroup", "Locked", "Position" }
+local PART_PROPS = { "Name", "Parent", "Anchored", "Size", "CFrame", "Color", "Material", "TopSurface", "BottomSurface", "CanCollide", "CastShadow", "Transparency", "Shape", "Reflectance", "Massless", "CanTouch", "CanQuery", "CollisionGroup", "Locked", "Position", "LocalTransparencyModifier" }
 local function concat(...)
 	local out = {}
 	for _, list in { ... } do
@@ -295,6 +301,7 @@ local CLASSES = {
 	UIStroke = { props = { "Name", "Parent", "Color", "Thickness", "Transparency" } },
 	UIGradient = { props = { "Name", "Parent", "Color", "Rotation" } },
 	Attachment = { props = { "Name", "Parent", "Position", "CFrame" } },
+	ParticleEmitter = { props = { "Name", "Parent", "Enabled", "Rate", "Lifetime", "Speed", "SpreadAngle", "Size", "Color", "Transparency", "LightEmission", "LightInfluence", "Acceleration", "EmissionDirection", "LockedToPart", "Rotation", "RotSpeed", "Drag", "ZOffset" } },
 	Beam = { props = { "Name", "Parent", "Attachment0", "Attachment1", "Color", "Transparency", "Width0", "Width1", "LightEmission", "LightInfluence", "FaceCamera", "Segments", "Enabled", "CurveSize0", "CurveSize1", "ZOffset" } },
 	Smoke = { props = { "Name", "Parent", "Size", "Opacity", "RiseVelocity", "Color", "Enabled" } },
 	DepthOfFieldEffect = { props = { "Name", "Parent", "FarIntensity", "NearIntensity", "FocusDistance", "InFocusRadius" } },
@@ -796,6 +803,9 @@ end)
 rawset(__runService, "IsStudio", function()
 	return __isStudio
 end)
+rawset(__runService, "IsClient", function()
+	return true -- el simulador ejecuta servidor y cliente en el mismo proceso
+end)
 rawset(__runService, "IsServer", function()
 	return true
 end)
@@ -899,7 +909,14 @@ function __collection:HasTag(inst, tag)
 end
 function __collection:GetTagged(tag)
 	local out = {}
-	for inst in self._tags[tag] or {} do table.insert(out, inst) end
+	for inst in self._tags[tag] or {} do
+		-- como en Roblox: solo instancias que estan dentro del DataModel (las destruidas/desparentadas no cuentan)
+		local top = inst
+		while rawget(top, "_parent") do top = rawget(top, "_parent") end
+		if top == workspace or top == __replicated or top == __serverScripts or top == __starterPlayer or top == __lighting then
+			table.insert(out, inst)
+		end
+	end
 	return out
 end
 function __collection:GetInstanceAddedSignal(tag)
