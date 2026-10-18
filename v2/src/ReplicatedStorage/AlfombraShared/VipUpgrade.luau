@@ -12,10 +12,13 @@
 	   presentacion (un cliente modificado vera a traves). Opcional (desactivado): piel de cristal interior en el muro
 	   exterior (Glass.Exterior = true) con la misma logica "negro desde fuera, transparente desde dentro".
 
-	2) AROS DE FUEGO decorativos (3 en Equilibrado, 4 en Alta) suspendidos del techo del VIP
-	   Anillo metalico dorado + banda interior negra (12/16 segmentos), 3 varillas negras hasta el techo, pequenas llamas
-	   (ParticleEmitter, sin dano: no hay Touched/Fire/Explosion) repartidas por la circunferencia y UNA PointLight calida por
-	   aro, SIN sombras. Todo con CanCollide/CanTouch/CanQuery = false: no bloquean camara, raycasts ni circulacion. Cada aro
+	   Segun la referencia aportada por el titular: caja de cristal hasta el techo con MONTANTES y CORNISA/ZOCALO negros finos y
+	   4 postes de esquina (todo decorativo y NO colisionable: el unico colisionable sigue siendo el vidrio).
+
+	2) AROS DE FUEGO decorativos (4 en Equilibrado y en Alta, de DIAMETROS Y ALTURAS VARIADOS) suspendidos del techo del VIP
+	   Anillo metalico dorado + banda interior negra (12/16 segmentos), 3 TENSORES (cables negros finos que convergen al
+	   techo sobre el centro), pequenas llamas naranjas (ParticleEmitter, sin dano: no hay Touched/Fire/Explosion) en TODO el
+	   perimetro (una por segmento) y UNA PointLight ambar/roja por aro, SIN sombras. Todo con CanCollide/CanTouch/CanQuery = false: no bloquean camara, raycasts ni circulacion. Cada aro
 	   se comprueba contra la geometria existente (GetPartBoundsInBox) y se OMITE si choca con algo (aviso en Output).
 	   El cliente apaga las llamas y la luz de los aros lejanos (localmente) y hace un parpadeo suave de la luz.
 
@@ -38,7 +41,7 @@ local CollectionService = game:GetService("CollectionService")
 local Workspace = game:GetService("Workspace")
 
 local VipUpgrade = {}
-VipUpgrade.Version = "1.0.0"
+VipUpgrade.Version = "1.1.0"
 
 ------------------------------------------------------------------------
 -- Configuracion (puedes pasar un override a build(ctx, opts) / initClient(opts); se mezcla en profundidad)
@@ -62,25 +65,29 @@ VipUpgrade.Config = {
 		UpdateHz = 10,
 		Exterior = false, -- piel de cristal en el interior del muro exterior (DESACTIVADA: revisa tu fachada antes)
 		ExteriorInset = 0.6,
+		-- marco decorativo (no colisiona): montantes negros finos, cornisa arriba, zocalo abajo y postes de esquina
+		Frame = { Enabled = true, MullionSize = 0.45, CornerSize = 0.7, BandHeight = 0.6, BandDepth = 0.75, Color = { 14, 14, 17 } },
 	},
 
 	Rings = {
 		Enabled = true,
-		Radius = 3.2,
-		Height = 13, -- altura del aro sobre el suelo VIP
+		-- radios y alturas por aro (la referencia muestra aros de DIAMETROS Y ALTURAS variados). Si hay mas aros que valores, se repiten.
+		Radii = { 4.0, 3.0, 3.5, 2.6 },
+		Heights = { 13, 14.5, 12, 13.5 }, -- altura del aro sobre el suelo VIP
 		RingThickness = 0.3,
 		-- centros (x, z) candidatos, en los pasillos entre lounges. Se usan los primeros `count` que quepan.
 		Positions = { { -55, -24 }, { 55, -24 }, { -55, 24 }, { 55, 24 } },
 		Gold = { 222, 178, 98 },
 		Black = { 16, 16, 18 },
-		FlameColor = { 255, 150, 50 },
-		LightColor = { 255, 170, 90 },
-		LightRange = 24,
+		FlameColor = { 255, 135, 40 },
+		LightColor = { 255, 125, 55 }, -- interior ambar/rojo
+		LightRange = 26,
 		LightBrightness = 1.1,
 		FlickerHz = 6,
 		Profiles = {
-			Equilibrado = { count = 3, segments = 12, flames = 6, rate = 6, cull = 90 },
-			Alta = { count = 4, segments = 16, flames = 8, rate = 10, cull = 140 },
+			-- flames = una llama por segmento (TODO el perimetro); rate = particulas/s por llama; mullion = separacion de montantes
+			Equilibrado = { count = 4, segments = 12, flames = 12, rate = 3, cull = 90, mullion = 10 },
+			Alta = { count = 4, segments = 16, flames = 16, rate = 5, cull = 140, mullion = 6 },
 		},
 	},
 }
@@ -131,7 +138,7 @@ end
 
 local DECOR = { CanCollide = false, CanTouch = false, CanQuery = false, CastShadow = false }
 
-local function buildGlass(folder, cfg, A)
+local function buildGlass(folder, cfg, A, profile)
 	local g = cfg.Glass
 	local H = cfg.CeilingY - cfg.FloorY
 	local cy = cfg.FloorY + H / 2
@@ -155,6 +162,13 @@ local function buildGlass(folder, cfg, A)
 		table.insert(walls, { name = "XE", cx = h - e, cz = 0, sx = t, sz = span, nx = -1, nz = 0 })
 	end
 	local n = 0
+	local fr = g.Frame
+	local frameColor = rgb(fr.Color)
+	local function frameBox(name, cx, y0, cz, sx, sy, sz)
+		newPart(folder, name, CFrame.new(cx, y0 + sy / 2, cz), Vector3.new(sx, sy, sz), frameColor, Enum.Material.Metal, {
+			CanCollide = false, CanTouch = false, CanQuery = false, CastShadow = false, Reflectance = 0.25,
+		})
+	end
 	for _, w in walls do
 		local p = newPart(folder, "VipGlass_" .. w.name, CFrame.new(w.cx, cy, w.cz), Vector3.new(w.sx, H, w.sz), color, Enum.Material.Glass, {
 			Transparency = 0, -- negro por defecto; el cliente lo aclara SOLO en su pantalla desde el lado del VIP
@@ -168,6 +182,29 @@ local function buildGlass(folder, cfg, A)
 		p:SetAttribute("wall", w.name)
 		CollectionService:AddTag(p, "AR_VipGlass")
 		n += 1
+		if fr.Enabled and not string.find(w.name, "^X") then
+			local alongX = w.sx > w.sz
+			local len = alongX and w.sx or w.sz
+			-- cornisa (techo) y zocalo (suelo): bandas negras finas a lo largo del panel
+			local bd, bh = fr.BandDepth, fr.BandHeight
+			frameBox("VipFrameCornice_" .. w.name, w.cx, cfg.CeilingY - bh, w.cz, alongX and len or bd, bh, alongX and bd or len)
+			frameBox("VipFramePlinth_" .. w.name, w.cx, cfg.FloorY, w.cz, alongX and len or bd, bh, alongX and bd or len)
+			-- montantes interiores (los extremos son los postes de esquina)
+			local m = math.max(2, math.ceil(len / profile.mullion))
+			for i = 1, m - 1 do
+				local off = -len / 2 + i * len / m
+				frameBox("VipFrameMullion_" .. w.name .. i, w.cx + (alongX and off or 0), cfg.FloorY, w.cz + (alongX and 0 or off), fr.MullionSize, H, fr.MullionSize)
+			end
+		end
+	end
+	if fr.Enabled and not g.Exterior then
+		-- 4 postes de esquina
+		local cin = g.Inset + t / 2
+		for _, cx in { A.x1 - cin, A.x2 + cin } do
+			for _, cz in { A.z1 - cin, A.z2 + cin } do
+				frameBox("VipFrameCorner", cx, cfg.FloorY, cz, fr.CornerSize, H, fr.CornerSize)
+			end
+		end
 	end
 	return n
 end
@@ -191,11 +228,16 @@ local function blocked(center, size, ignore)
 	return false, nil
 end
 
+local function ringSize(cfg, idx)
+	local R = cfg.Rings
+	return R.Radii[(idx - 1) % #R.Radii + 1], R.Heights[(idx - 1) % #R.Heights + 1]
+end
+
 local function buildRing(folder, cfg, profile, idx, x, z)
 	local R = cfg.Rings
-	local y = cfg.FloorY + R.Height
+	local radius, height = ringSize(cfg, idx)
+	local y = cfg.FloorY + height
 	local top = cfg.CeilingY
-	local radius = R.Radius
 	local th = R.RingThickness
 	local gold, black = rgb(R.Gold), rgb(R.Black)
 	local model = Instance.new("Model")
@@ -240,12 +282,14 @@ local function buildRing(folder, cfg, profile, idx, x, z)
 			CollectionService:AddTag(pe, "AR_VipFlame")
 		end
 	end
-	-- 3 varillas negras desde el aro hasta el techo (techo = cara inferior de la losa del piso 3)
+	-- 3 TENSORES (cables negros finos) desde tres puntos del aro, a 120 grados, que convergen en un punto del techo sobre el
+	-- centro (techo = cara inferior de la losa del piso 3)
+	local apex = Vector3.new(x, top, z)
 	for k = 0, 2 do
 		local a = k / 3 * math.pi * 2 + math.pi / 6
-		local rx, rz = x + math.cos(a) * radius, z + math.sin(a) * radius
-		local y0 = y + th / 2
-		newPart(model, "RingRod", CFrame.new(rx, (y0 + top) / 2, rz), Vector3.new(0.12, top - y0, 0.12), black, Enum.Material.Metal, DECOR)
+		local from = Vector3.new(x + math.cos(a) * radius, y + th / 2, z + math.sin(a) * radius)
+		local len = (apex - from).Magnitude
+		newPart(model, "RingRod", CFrame.lookAt((from + apex) / 2, apex), Vector3.new(0.1, 0.1, len), black, Enum.Material.Metal, DECOR)
 	end
 	-- una luz calida por aro, sin sombras, en una pieza invisible en el centro (no es un objeto fisico)
 	local anchor = newPart(model, "RingGlow", CFrame.new(x, y + 0.8, z), Vector3.new(0.2, 0.2, 0.2), black, Enum.Material.SmoothPlastic, {
@@ -263,6 +307,7 @@ local function buildRing(folder, cfg, profile, idx, x, z)
 	CollectionService:AddTag(light, "AR_VipFlameLight")
 	model:SetAttribute("cx", x)
 	model:SetAttribute("cy", y)
+	model:SetAttribute("radius", radius)
 	model:SetAttribute("cz", z)
 	model:SetAttribute("cull", profile.cull)
 	CollectionService:AddTag(model, "AR_VipRing")
@@ -296,7 +341,7 @@ function VipUpgrade.build(ctx, opts)
 	folder.Name = FOLDER
 	local out = { glass = 0, rings = 0, flames = 0, lights = 0, skipped = {}, quality = quality }
 	if cfg.Glass.Enabled then
-		out.glass = buildGlass(folder, cfg, A)
+		out.glass = buildGlass(folder, cfg, A, profile)
 	end
 	if cfg.Rings.Enabled then
 		local placed = 0
@@ -305,13 +350,13 @@ function VipUpgrade.build(ctx, opts)
 				break
 			end
 			local x, z = p[1], p[2]
-			local R = cfg.Rings.Radius
+			local R, height = ringSize(cfg, placed + 1)
 			local why
 			if x - R < A.x2 + 1.5 and x + R > A.x1 - 1.5 and z - R < A.z2 + 1.5 and z + R > A.z1 - 1.5 then
 				why = "sobre el atrio (el aro cuelga del techo del VIP, no del atrio)"
 			else
 				-- volumen del aro + varillas: desde un poco por debajo del aro hasta justo bajo el techo
-				local yLow = cfg.FloorY + cfg.Rings.Height - 0.6
+				local yLow = cfg.FloorY + height - 0.6
 				local yHigh = cfg.CeilingY - 0.05
 				local hit, who = blocked(Vector3.new(x, (yLow + yHigh) / 2, z), Vector3.new(2 * R + 0.8, yHigh - yLow, 2 * R + 0.8), { folder })
 				if hit then

@@ -1,4 +1,4 @@
-# LA ALFOMBRA ROJA · v2.1.6
+# LA ALFOMBRA ROJA · v2.1.7
 
 Versión **nueva** (no sustituye a la v1 de la raíz del repositorio ni al `LaAlfombraRoja_v2.rbxlx` anterior, que se conserva tal cual). Conserva el nombre y logo de corona dorada, texto
 dorado/rojo, alfombra roja, estilo luxury, muebles blancos y negros brillantes, la bola de espejos corregida
@@ -8,6 +8,11 @@ siguen en x = -76,9 y el `ClubSpawn` es invisible (`Transparency = 1`).
 > **Estado real:** todo está hecho por código y probado **solo en un simulador** (Luau + una API de Roblox simulada).
 > **Nada se ha abierto ni probado en Roblox Studio.** Véase la [matriz de pruebas](#matriz-de-pruebas).
 > No se ha publicado nada ni hecho merge.
+
+## Novedades de la 2.1.7 (VipUpgrade 1.1.0: ajuste a la imagen de referencia)
+Marco negro fino decorativo (montantes, cornisa, zócalo, 4 postes; sin colisión), 4 aros de diámetros y alturas variados con 3 tensores que convergen al
+techo, una llama pequeña por segmento en todo el perímetro y luz ámbar/roja sin sombras. Sin multitudes, jaulas, piscina ni cabañas (opciones 1–3 sin elegir);
+lounges, muebles, pasillos y escaleras intactos. Ver `INTEGRACION_VipUpgrade.md`. Simulado; **sin ver en Studio**.
 
 ## Novedades de la 2.1.6 (parche aditivo VipUpgrade: cristal VIP + aros de fuego)
 Autorizado por el titular. Nuevo `ReplicatedStorage/AlfombraShared/VipUpgrade` (autocontenido, ver `INTEGRACION_VipUpgrade.md`): cierre de cristal del
@@ -315,10 +320,10 @@ El inventario vive en un único registro por jugador (`DataStore`, clave `u<User
 | **Asientos**: sentarse con E, salir con botón/salto/`JumpRequest` validado en servidor, cooldowns, volver a sentarse, ocupados, no liberar a otros, asiento ajeno, spam (el mock reproduce el asiento anclado «pegado» observado en Studio) | ✅ 26 + 9 cliente (simulado) | ❌ (**la corrección aún no se ha probado en Studio**; causa raíz sin confirmar) |
 | **Pantallas NowPlayingL/R orientadas al público** (normal +Z, visibles desde la cámara del QA, barras planas sin audio) y monitor del DJ hacia el operador | ✅ (simulado) | ❌ (**la corrección aún no se ha visto en Studio**; evidencia previa del usuario con `Face = Back` solo en QA) |
 | Arranque aislado de módulos del cliente, registro tardío de focos, luces de acceso vs relleno con oscuridad máxima, menos exposición (valores de `Lighting`/bloom) | ✅ | ❌ (**el aspecto real de la exposición no se ha visto**) |
-| Pruebas de sabotaje (56 mutaciones, todas detectadas) | ✅ | n/a |
+| Pruebas de sabotaje (61 mutaciones, todas detectadas) | ✅ | n/a |
 | Ejecución real, rendimiento/FPS, colisiones, red, multijugador | ❌ | ❌ |
 
-Totales actuales (simulador): servidor 133, VipUpgrade 32 (×2 perfiles), asientos 26, persistencia 33, libro de recibos 27, sin DataStore 14, Studio temporal 8 + 3 (producción), cliente 101, mundo 169 (×2 perfiles), archivos 14 comprobaciones, 56 sabotajes detectados. **Ninguno es una prueba en Studio.**
+Totales actuales (simulador): servidor 133, VipUpgrade 32 (×2 perfiles), asientos 26, persistencia 33, libro de recibos 27, sin DataStore 14, Studio temporal 8 + 3 (producción), cliente 101, mundo 169 (×2 perfiles), archivos 14 comprobaciones, 61 sabotajes detectados. **Ninguno es una prueba en Studio.**
 
 ### Puntos que **no** se han podido verificar y conviene mirar primero en Studio
 1. Que `Seat:Sit(humanoid)` siente al jugador y que los asientos quedan bien colocados.

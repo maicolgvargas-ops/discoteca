@@ -75,15 +75,43 @@ do -- ===================================================== cristal
 	check("no se ha tocado nada del club fuera de la carpeta VipUpgrade (mismas escaleras/pasillos/barra)", club:FindFirstChild("Stairs") == nil or true)
 end
 
+do -- ===================================================== marco decorativo (referencia del titular)
+	local corners, cornice, plinth, mullions, nonCollide, ok = 0, 0, 0, 0, true, true
+	for _, d in folder:GetChildren() do
+		if string.find(d.Name, "^VipFrame") then
+			if d.CanCollide or d.CanTouch or d.CanQuery then nonCollide = false end
+			if d.Color.R > 0.1 or d.Color.G > 0.1 or d.Color.B > 0.12 then ok = false end
+			if d.Name == "VipFrameCorner" then corners += 1 end
+			if string.find(d.Name, "^VipFrameCornice") then cornice += 1 end
+			if string.find(d.Name, "^VipFramePlinth") then plinth += 1 end
+			if string.find(d.Name, "^VipFrameMullion") then mullions += 1 end
+		end
+	end
+	check("marco negro: 4 postes de esquina, 4 cornisas, 4 zocalos y montantes finos (" .. mullions .. ")", corners == 4 and cornice == 4 and plinth == 4 and mullions >= (ALTA and 40 or 24), mullions)
+	check("el marco es solo decorativo (no colisiona, no es tocable ni consultable) y es negro", nonCollide and ok)
+	-- cornisa pegada al techo, zocalo al suelo
+	local topOk = true
+	for _, d in folder:GetChildren() do
+		if string.find(d.Name, "^VipFrameCornice") and math.abs(d.Position.Y + d.Size.Y / 2 - 46) > 1e-6 then topOk = false end
+		if string.find(d.Name, "^VipFramePlinth") and math.abs(d.Position.Y - d.Size.Y / 2 - 24) > 1e-6 then topOk = false end
+	end
+	check("la cornisa llega al techo (y=46) y el zocalo apoya en el suelo VIP (y=24)", topOk)
+end
+
 do -- ===================================================== aros
 	local rings = CS:GetTagged("AR_VipRing")
-	local expect = ALTA and 4 or 3
-	check("aros de fuego segun calidad: " .. expect .. " (3-4)", #rings == expect, #rings)
+	local expect = 4
+	check("4 aros de fuego (como en la referencia) en ambas calidades", #rings == expect, #rings)
 	local ok, why = true, nil
 	local flamesTotal, lights = 0, 0
+	local radii, heights = {}, {}
 	for _, m in rings do
 		local gold, blackBand, rods, light = 0, 0, 0, nil
 		local flames = 0
+		local radius = m:GetAttribute("radius")
+		local cx, cy, cz = m:GetAttribute("cx"), m:GetAttribute("cy"), m:GetAttribute("cz")
+		radii[radius] = true
+		heights[cy] = true
 		for _, d in m:GetDescendants() do
 			if d:IsA("BasePart") then
 				if d.CanCollide or d.CanTouch or d.CanQuery then ok, why = false, d.Name .. " bloquea" end
@@ -91,10 +119,19 @@ do -- ===================================================== aros
 				if d.Name == "RingBlack" then blackBand += 1 end
 				if d.Name == "RingRod" then
 					rods += 1
-					if math.abs(d.Position.Y + d.Size.Y / 2 - 46) > 1e-6 then ok, why = false, "varilla no llega al techo" end
+					-- tensor: extremo alto en el apice del techo sobre el centro; extremo bajo sobre el aro
+					local half = d.Size.Z / 2
+					local up = d.CFrame.Position + d.CFrame.LookVector * half
+					local dn = d.CFrame.Position - d.CFrame.LookVector * half
+					if up.Y < dn.Y then up, dn = dn, up end
+					if math.abs(up.Y - 46) > 1e-6 or math.abs(up.X - cx) > 1e-6 or math.abs(up.Z - cz) > 1e-6 then ok, why = false, "tensor no converge al techo" end
+					local rr = math.sqrt((dn.X - cx) ^ 2 + (dn.Z - cz) ^ 2)
+					if math.abs(rr - radius) > 1e-6 or math.abs(dn.Y - (cy + 0.15)) > 1e-6 then ok, why = false, "tensor no nace del aro" end
+					if d.Size.X > 0.11 or d.Size.Y > 0.11 then ok, why = false, "tensor grueso" end
 				end
 			elseif d:IsA("ParticleEmitter") then
 				flames += 1
+				if d.Color == nil then ok, why = false, "llama sin color" end
 			elseif d:IsA("PointLight") then
 				light = d
 				lights += 1
@@ -102,15 +139,17 @@ do -- ===================================================== aros
 		end
 		local N = ALTA and 16 or 12
 		if gold ~= N or blackBand ~= N or rods ~= 3 then ok, why = false, m.Name .. " piezas " .. gold .. "/" .. blackBand .. "/" .. rods end
-		if flames ~= (ALTA and 8 or 6) then ok, why = false, m.Name .. " llamas " .. flames end
-		if not light or light.Shadows ~= false or light.Range > 60 then ok, why = false, m.Name .. " luz" end
+		if flames ~= N then ok, why = false, m.Name .. " llamas " .. flames .. " (una por segmento: TODO el perimetro)" end
+		if not light or light.Shadows ~= false or light.Range > 60 or light.Color.R < 0.9 or light.Color.B > 0.5 then ok, why = false, m.Name .. " luz" end
 		flamesTotal += flames
-		local cx, cz = m:GetAttribute("cx"), m:GetAttribute("cz")
 		if cx > A.x1 - 2 and cx < A.x2 + 2 and cz > A.z1 - 2 and cz < A.z2 + 2 then ok, why = false, "aro sobre el atrio" end
-		if math.abs(m:GetAttribute("cy") - 37) > 1e-6 then ok, why = false, "altura" end
 	end
-	check("cada aro: anillo dorado + banda negra, 3 varillas hasta el techo, llamas por la circunferencia, 1 luz SIN sombras; nada colisiona ni es tocable ni consultable", ok, why)
-	check("coste moderado: luces nuevas = " .. expect .. " (sin sombras) y llamas totales razonables", lights == expect and flamesTotal <= 40, flamesTotal)
+	check("cada aro: dorado + banda negra, 3 tensores que convergen al techo, UNA llama por segmento (todo el perimetro), 1 luz ambar SIN sombras; nada colisiona", ok, why)
+	local nr, nh = 0, 0
+	for _ in radii do nr += 1 end
+	for _ in heights do nh += 1 end
+	check("aros de diametros y alturas VARIADOS (>= 3 radios y >= 3 alturas distintas)", nr >= 3 and nh >= 3, nr .. "/" .. nh)
+	check("coste moderado: " .. expect .. " luces nuevas sin sombras y <= 70 emisores en total", lights == expect and flamesTotal <= 70, flamesTotal)
 	-- las llamas no hacen dano: ningun script/Touched/Fire/Explosion en el parche
 	local bad = false
 	for _, d in folder:GetDescendants() do
@@ -126,7 +165,7 @@ do -- ===================================================== aros
 	obstacle.CFrame = CFrame.new(-55, 40, -24)
 	obstacle.Parent = workspace
 	local res = Vip.build(ctx)
-	check("un aro que chocaria con algo existente se OMITE y se avisa (skipped), sin romper el resto", res and #res.skipped >= 1 and res.skipped[1].ring == 1 and res.rings == (expect - (ALTA and 1 or 0)), res and #res.skipped)
+	check("un aro que chocaria con algo existente se OMITE y se avisa (skipped), sin romper el resto", res and #res.skipped >= 1 and res.skipped[1].ring == 1 and res.rings == expect - 1, res and #res.skipped)
 	obstacle:Destroy()
 	local res2 = Vip.build(ctx)
 	check("reconstruir es idempotente: no duplica carpetas ni paneles", #glass() == 4 and #CS:GetTagged("AR_VipRing") == expect and res2.skipped[1] == nil and #club:GetChildren() > 0 and (function() local n = 0 for _, c in club:GetChildren() do if c.Name == "VipUpgrade" then n += 1 end end return n == 1 end)())
