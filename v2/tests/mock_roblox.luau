@@ -10,6 +10,9 @@ local Vector3 = {}
 Vector3.__index = function(self, k)
 	if k == "Magnitude" then
 		return math.sqrt(self.X ^ 2 + self.Y ^ 2 + self.Z ^ 2)
+	elseif k == "Unit" then
+		local m = math.sqrt(self.X ^ 2 + self.Y ^ 2 + self.Z ^ 2)
+		return setmetatable({ X = self.X / m, Y = self.Y / m, Z = self.Z / m, __type = "Vector3" }, Vector3)
 	end
 	return rawget(Vector3, k)
 end
@@ -140,6 +143,8 @@ end
 CFrame.__index = function(self, k)
 	if k == "Position" then
 		return Vector3.new(self.px, self.py, self.pz)
+	elseif k == "UpVector" then
+		return Vector3.new(self.r[2], self.r[5], self.r[8])
 	elseif k == "RightVector" then
 		return Vector3.new(self.r[1], self.r[4], self.r[7])
 	elseif k == "LookVector" then
